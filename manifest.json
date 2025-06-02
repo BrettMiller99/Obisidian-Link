@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "minAppVersion": "0.15.0",
   "description": "Integrate Obsidian with Google's Gemini AI for web scraping, note summarization, and search",
-  "author": "Your Name",
-  "authorUrl": "https://github.com/yourusername",
+  "author": "Brett Miller",
+  "authorUrl": "https://github.com/BrettMiller99",
   "isDesktopOnly": false
 }

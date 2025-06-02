@@ -17,7 +17,7 @@
     "summarization",
     "web-scraping"
   ],
-  "author": "Your Name",
+  "author": "Brett Miller",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^16.11.6",

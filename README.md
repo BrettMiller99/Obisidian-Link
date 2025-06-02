@@ -40,7 +40,7 @@ Obsidian-Gemini Link leverages Google's powerful Gemini AI models to enhance you
 ## Installation
 
 ### Method 1: Manual Installation
-1. Download the latest release from the [GitHub repository](https://github.com/yourusername/obsidian-gemini-link/releases)
+1. Download the latest release from the [GitHub repository](https://github.com/BrettMiller99/obsidian-gemini-link/releases)
 2. Extract the zip file into your Obsidian plugins folder: `{vault}/.obsidian/plugins/obsidian-gemini-link/`
 3. Restart Obsidian
 4. Enable the plugin in Obsidian settings > Community plugins
@@ -98,7 +98,7 @@ Obsidian-Gemini Link leverages Google's powerful Gemini AI models to enhance you
 ### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/obsidian-gemini-link.git
+git clone https://github.com/BrettMiller99/obsidian-gemini-link.git
 
 # Install dependencies
 cd obsidian-gemini-link
