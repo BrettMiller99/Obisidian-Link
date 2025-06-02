@@ -1,13 +1,24 @@
-import { GeminiApi } from '../utils/gemini-api';
-import { GeminiLinkSettings } from '../types.js';
+import { ObsidianLinkSettings, getApiKeyForVendor } from '../types.js';
+import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 export class SummarizerService {
-    private geminiApi: GeminiApi;
-    private settings: GeminiLinkSettings;
+    private aiProvider: AIProvider;
+    private settings: ObsidianLinkSettings;
 
-    constructor(apiKey: string, settings: GeminiLinkSettings) {
+    constructor(settings: ObsidianLinkSettings) {
         this.settings = settings;
-        this.geminiApi = new GeminiApi(apiKey, settings);
+        
+        // Get the appropriate API key for the selected vendor
+        const apiKey = getApiKeyForVendor(settings, settings.vendor);
+        
+        // Create the AI provider using the factory
+        this.aiProvider = AIProviderFactory.createProvider({
+            apiKey,
+            model: settings.model,
+            maxTokens: settings.maxTokens,
+            temperature: settings.temperature,
+            vendor: settings.vendor
+        });
     }
 
     /**
@@ -33,8 +44,8 @@ export class SummarizerService {
                 ${content}
             `;
             
-            // Get the raw summary from Gemini
-            let summary = await this.geminiApi.generateContent(prompt);
+            // Get the raw summary from the AI provider
+            let summary = await this.aiProvider.generateContent(prompt);
             
             // Post-process to remove any titles that might have been included despite instructions
             summary = this.removeTitles(summary);

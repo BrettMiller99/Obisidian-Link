@@ -1,6 +1,6 @@
-# Obsidian-Gemini Link
+# Obsidian-Link
 
-A powerful plugin for Obsidian that integrates with Google's Gemini AI to enhance your note-taking experience with intelligent search, web scraping, summarization, and content generation capabilities.
+A powerful plugin for Obsidian that enhances your note-taking experience with AI-powered intelligent search, web scraping, summarization, and content generation capabilities.
 
 ## Features
 
@@ -30,9 +30,9 @@ A powerful plugin for Obsidian that integrates with Google's Gemini AI to enhanc
 
 ## How It Works
 
-Obsidian-Gemini Link leverages Google's powerful Gemini AI models to enhance your Obsidian experience:
+Obsidian-Link leverages powerful AI models to enhance your Obsidian experience:
 
-1. **API Integration**: The plugin communicates with Google's Generative AI API to process your requests
+1. **API Integration**: The plugin communicates with advanced AI services to process your requests
 2. **Local Processing**: Your vault's content is processed locally for search indexing
 3. **Secure Authentication**: Your API key is stored securely and used only for authorized requests
 4. **Modular Architecture**: The plugin uses separate services for web scraping, summarization, search, and highlighting
@@ -40,8 +40,8 @@ Obsidian-Gemini Link leverages Google's powerful Gemini AI models to enhance you
 ## Installation
 
 ### Method 1: Manual Installation
-1. Download the latest release from the [GitHub repository](https://github.com/BrettMiller99/obsidian-gemini-link/releases)
-2. Extract the zip file into your Obsidian plugins folder: `{vault}/.obsidian/plugins/obsidian-gemini-link/`
+1. Download the latest release from the [GitHub repository](https://github.com/BrettMiller99/obsidian-link/releases)
+2. Extract the zip file into your Obsidian plugins folder: `{vault}/.obsidian/plugins/obsidian-link/`
 3. Restart Obsidian
 4. Enable the plugin in Obsidian settings > Community plugins
 
@@ -53,10 +53,14 @@ Obsidian-Gemini Link leverages Google's powerful Gemini AI models to enhance you
 
 ## Configuration
 
-1. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-2. Set up your API key using one of these methods:
+1. Get an API key from one of the supported AI providers:
+   - [Google AI Studio](https://aistudio.google.com/) for Gemini models
+   - [OpenAI](https://platform.openai.com/) for GPT models
+   - [Anthropic](https://console.anthropic.com/) for Claude models
+
+2. Set up your chosen API key using one of these methods:
    - **Plugin Settings (Recommended)**: 
-     - Go to Settings > Community Plugins > Obsidian-Gemini Link
+     - Go to Settings > Community Plugins > Obsidian-Link
      - Enter your API key in the designated field
    - **Environment File (For Development)**: 
      - Copy `.env.example` to `.env` in the project root
@@ -98,10 +102,10 @@ Obsidian-Gemini Link leverages Google's powerful Gemini AI models to enhance you
 ### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/BrettMiller99/obsidian-gemini-link.git
+git clone https://github.com/BrettMiller99/obsidian-link.git
 
 # Install dependencies
-cd obsidian-gemini-link
+cd obsidian-link
 npm install
 
 # Build the plugin

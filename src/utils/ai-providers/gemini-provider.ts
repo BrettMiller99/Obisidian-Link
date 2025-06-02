@@ -1,30 +1,15 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { ObsidianLinkSettings, ObsidianLinkModelOption } from '../types.js';
-import { Notice } from 'obsidian';
+import { 
+    AIProvider, 
+    AIProviderSettings, 
+    AIVendor, 
+    ModelAvailabilityInfo, 
+    ModelAvailabilityStatus,
+    showErrorNotice
+} from './base-provider';
 
 /**
- * Model availability status types
- */
-export enum ModelAvailabilityStatus {
-    GENERALLY_AVAILABLE = 'generally_available',
-    LIMITED_PREVIEW = 'limited_preview',
-    EXPERIMENTAL = 'experimental',
-    DEPRECATED = 'deprecated',
-    UNKNOWN = 'unknown'
-}
-
-/**
- * Interface for model availability information
- */
-export interface ModelAvailabilityInfo {
-    status: ModelAvailabilityStatus;
-    reason?: string;
-    fallbackModel?: ObsidianLinkModelOption;
-}
-
-/**
- * Map of known models and their availability status
- * This helps provide better error messages for models that are not available
+ * Map of known Gemini models and their availability status
  */
 export const GEMINI_MODEL_AVAILABILITY: Record<string, ModelAvailabilityInfo> = {
     // Gemini 1.5 models - generally available
@@ -83,11 +68,11 @@ export const GEMINI_MODEL_AVAILABILITY: Record<string, ModelAvailabilityInfo> = 
 };
 
 /**
- * Check if a model is likely to be available based on our knowledge
+ * Check if a Gemini model is likely to be available based on our knowledge
  * @param modelName The model name to check
  * @returns Information about the model's availability
  */
-export function checkModelAvailability(modelName: string): ModelAvailabilityInfo {
+export function checkGeminiModelAvailability(modelName: string): ModelAvailabilityInfo {
     // Check if we have specific information about this model
     if (modelName in GEMINI_MODEL_AVAILABILITY) {
         return GEMINI_MODEL_AVAILABILITY[modelName];
@@ -98,7 +83,7 @@ export function checkModelAvailability(modelName: string): ModelAvailabilityInfo
         return {
             status: ModelAvailabilityStatus.LIMITED_PREVIEW,
             reason: 'This appears to be a preview or experimental model that may have limited availability.',
-            fallbackModel: inferFallbackModel(modelName)
+            fallbackModel: inferGeminiFallbackModel(modelName)
         };
     }
     
@@ -106,7 +91,7 @@ export function checkModelAvailability(modelName: string): ModelAvailabilityInfo
         return {
             status: ModelAvailabilityStatus.LIMITED_PREVIEW,
             reason: 'Gemini 2.5 models are currently in limited preview and may not be available with your API key.',
-            fallbackModel: inferFallbackModel(modelName)
+            fallbackModel: inferGeminiFallbackModel(modelName)
         };
     }
     
@@ -122,7 +107,7 @@ export function checkModelAvailability(modelName: string): ModelAvailabilityInfo
  * @param modelName The original model name
  * @returns A suggested fallback model
  */
-function inferFallbackModel(modelName: string): ObsidianLinkModelOption {
+function inferGeminiFallbackModel(modelName: string): string {
     // If it's a pro model, suggest gemini-1.5-pro as fallback
     if (modelName.includes('pro')) {
         return 'gemini-1.5-pro';
@@ -133,30 +118,16 @@ function inferFallbackModel(modelName: string): ObsidianLinkModelOption {
 }
 
 /**
- * Utility class for working with the Gemini API
+ * Implementation of the AIProvider interface for Google's Gemini models
  */
-export class GeminiApi {
+export class GeminiProvider implements AIProvider {
     private genAI: GoogleGenerativeAI;
     private model: GenerativeModel;
-    private settings: ObsidianLinkSettings;
+    private settings: AIProviderSettings;
 
-    constructor(apiKey: string, settings: ObsidianLinkSettings) {
+    constructor(apiKey: string, settings: AIProviderSettings) {
         this.settings = settings;
         this.genAI = new GoogleGenerativeAI(apiKey);
-        
-        // Check model availability using our validation system
-        const modelInfo = checkModelAvailability(this.settings.model);
-        
-        // Log appropriate warnings based on model status
-        if (modelInfo.status === ModelAvailabilityStatus.LIMITED_PREVIEW || 
-            modelInfo.status === ModelAvailabilityStatus.EXPERIMENTAL) {
-            console.warn(`Warning: Model ${this.settings.model} has limited availability: ${modelInfo.reason}`);
-            console.info(`Suggested fallback model: ${modelInfo.fallbackModel || 'gemini-1.5-pro'}`);
-        } else if (modelInfo.status === ModelAvailabilityStatus.DEPRECATED) {
-            console.warn(`Warning: Model ${this.settings.model} is deprecated: ${modelInfo.reason}`);
-        } else if (modelInfo.status === ModelAvailabilityStatus.UNKNOWN) {
-            console.warn(`Warning: Model ${this.settings.model} is not in our database: ${modelInfo.reason}`);
-        }
         
         // Format the model name correctly for the API
         // The settings.model is the base model name (e.g., 'gemini-1.5-pro')
@@ -185,11 +156,11 @@ export class GeminiApi {
             });
             
             return result.response.text();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error generating content with Gemini:', error);
             
             // Get model information for better error messages
-            const modelInfo = checkModelAvailability(this.settings.model);
+            const modelInfo = checkGeminiModelAvailability(this.settings.model);
             
             // Provide more specific error messages for common issues
             if (error.message && error.message.includes('404')) {
@@ -216,16 +187,16 @@ export class GeminiApi {
                 }
                 
                 // Show error in UI
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 
                 throw new Error(errorMessage);
             } else if (error.message && (error.message.includes('401') || error.message.includes('403'))) {
                 const errorMessage = 'Authentication failed. Please check your API key in settings.';
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             } else if (error.message && error.message.includes('429')) {
                 const errorMessage = 'Rate limit exceeded. Please try again later.';
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             } else if (error.message && error.message.includes('invalid_request')) {
                 // More specific handling for invalid requests
@@ -240,25 +211,23 @@ export class GeminiApi {
                     errorMessage += ` This may be due to an incompatible model configuration.`;
                 }
                 
-                // Show error in UI
-                new Notice(errorMessage, 10000); // Display for 10 seconds
-                
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             } else if (error.message && error.message.includes('not_found')) {
                 const errorMessage = `API endpoint not found. This could indicate an issue with the Gemini API service or an invalid model name: ${this.settings.model}.`;
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             } else if (error.message && error.message.includes('permission_denied')) {
                 const errorMessage = `Permission denied. Your API key may not have access to the ${this.settings.model} model. Try a different model or check your API key permissions.`;
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             } else if (error.message && error.message.includes('resource_exhausted')) {
                 const errorMessage = `Resource exhausted. You may have exceeded your quota for the ${this.settings.model} model. Check your Google AI Studio dashboard for quota information.`;
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             } else {
                 const errorMessage = `Failed to generate content: ${error.message}`;
-                new Notice(errorMessage, 10000); // Display for 10 seconds
+                showErrorNotice(errorMessage, 10000);
                 throw new Error(errorMessage);
             }
         }
@@ -276,5 +245,13 @@ export class GeminiApi {
             console.error('API key validation failed:', error);
             return false;
         }
+    }
+    
+    /**
+     * Get the vendor of this provider
+     * @returns The AI vendor (Google)
+     */
+    getVendor(): AIVendor {
+        return AIVendor.GOOGLE;
     }
 }

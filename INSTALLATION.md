@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide will help you set up and install the Obsidian-Gemini Link plugin for development and testing.
+This guide will help you set up and install the Obsidian-Link plugin for development and testing.
 
 ## Prerequisites
 
@@ -14,8 +14,8 @@ This guide will help you set up and install the Obsidian-Gemini Link plugin for 
 1. Clone this repository to your local machine:
 
 ```bash
-git clone https://github.com/yourusername/obsidian-gemini-link.git
-cd obsidian-gemini-link
+git clone https://github.com/yourusername/obsidian-link.git
+cd obsidian-link
 ```
 
 2. Install dependencies:
@@ -40,12 +40,12 @@ For testing during development, you can create a symbolic link from your develop
 
 **macOS/Linux:**
 ```bash
-ln -s /path/to/obsidian-gemini-link /path/to/your/obsidian/vault/.obsidian/plugins/obsidian-gemini-link
+ln -s /path/to/obsidian-link /path/to/your/obsidian/vault/.obsidian/plugins/obsidian-link
 ```
 
 **Windows:**
 ```bash
-mklink /D "C:\path\to\your\obsidian\vault\.obsidian\plugins\obsidian-gemini-link" "C:\path\to\obsidian-gemini-link"
+mklink /D "C:\path\to\your\obsidian\vault\.obsidian\plugins\obsidian-link" "C:\path\to\obsidian-link"
 ```
 
 5. Enable the plugin in Obsidian:
