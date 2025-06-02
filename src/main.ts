@@ -3,7 +3,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { WebScraperService } from './services/web-scraper';
 import { SummarizerService } from './services/summarizer';
 import { SearchService } from './services/search';
-import { HighlighterService } from './services/highlighter';
 import { GeminiApi } from './utils/gemini-api';
 import { 
 	GeminiLinkSettings, 
@@ -24,10 +23,10 @@ const DEFAULT_SETTINGS: GeminiLinkSettings = {
 
 export default class GeminiLinkPlugin extends Plugin {
 	settings: GeminiLinkSettings;
-	webScraper: WebScraperService | null = null;
+	geminiApi: GeminiApi | null = null;
 	summarizer: SummarizerService | null = null;
 	searchService: SearchService | null = null;
-	highlighter: HighlighterService | null = null;
+	webScraper: WebScraperService | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -35,14 +34,9 @@ export default class GeminiLinkPlugin extends Plugin {
 		// Initialize services if API key is available
 		this.initializeServices();
 		
-		// Register event listener for file open to apply highlighting
-		this.registerEvent(
-			this.app.workspace.on('file-open', (file) => {
-				if (file && this.highlighter) {
-					this.highlighter.highlightFile(file);
-				}
-			})
-		);
+		// We've removed the automatic highlighting on file-open
+		// This was causing yellow bars to appear when opening files in new tabs
+		// Highlighting is now only applied when explicitly requested from search results
 
 		// Add ribbon icon for web scraping
 		const ribbonIconEl = this.addRibbonIcon('globe', 'Scrape Website', async () => {
@@ -134,7 +128,7 @@ export default class GeminiLinkPlugin extends Plugin {
 					return;
 				}
 				
-				new SearchModal(this.app, this.searchService!, this.highlighter!).open();
+				new SearchModal(this.app, this.searchService!).open();
 			}
 		});
 
@@ -144,9 +138,7 @@ export default class GeminiLinkPlugin extends Plugin {
 
 	onunload() {
 		// Clean up any active highlights
-		if (this.highlighter) {
-			this.highlighter.clearAllHighlights();
-		}
+		// Highlighting functionality has been removed
 		
 		// Clean up other resources if needed
 		console.log('Unloading Gemini Link plugin');
@@ -197,8 +189,7 @@ export default class GeminiLinkPlugin extends Plugin {
 				this.summarizer = new SummarizerService(this.settings.apiKey, this.settings);
 				this.searchService = new SearchService(this.settings.apiKey, this.settings, this.app);
 				
-				// Initialize the highlighter service after the search service
-				this.highlighter = new HighlighterService(this.app, this.searchService);
+				// Highlighting functionality has been removed
 				
 				console.log('Gemini Link services initialized');
 			} catch (error) {
@@ -330,15 +321,13 @@ class WebScraperModal extends Modal {
 
 class SearchModal extends Modal {
 	searchService: SearchService;
-	highlighter: HighlighterService | null = null;
 	queryInputEl: HTMLInputElement;
-	resultsContainerEl: HTMLElement;
+	resultsContainerEl: HTMLElement | null = null;
 	performSearch: () => Promise<void>;
 	
-	constructor(app: App, searchService: SearchService, highlighter?: HighlighterService) {
+	constructor(app: App, searchService: SearchService) {
 		super(app);
 		this.searchService = searchService;
-		this.highlighter = highlighter || null;
 	}
 
 	onOpen() {
@@ -418,9 +407,10 @@ class SearchModal extends Modal {
 					for (const result of results) {
 						const file = this.app.vault.getAbstractFileByPath(result.path);
 						if (file && file instanceof TFile) {
-							// Open the file in a new tab
+							// Open the file in a new tab without highlighting
 							const leaf = this.app.workspace.getLeaf('tab');
 							await leaf.openFile(file);
+							// Note: We intentionally don't apply highlighting in new tabs
 						}
 					}
 					// Close the modal after opening all tabs
@@ -483,6 +473,8 @@ class SearchModal extends Modal {
 						if (file && file instanceof TFile) {
 							// Open the file but keep the modal open
 							await this.app.workspace.getLeaf(false).openFile(file);
+							
+							// Highlighting has been completely removed
 							
 							// Mark this result as visited
 							link.classList.add('visited');
