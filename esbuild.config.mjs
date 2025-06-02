@@ -28,7 +28,7 @@ esbuild.build({
   ],
   format: "cjs",
   watch: !prod,
-  target: "es2016",
+  target: "es2020",
   logLevel: "info",
   sourcemap: prod ? false : "inline",
   treeShaking: true,
@@ -36,5 +36,7 @@ esbuild.build({
   define: {
     // Define environment variables for the build
     'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || ''),
+    'process.env.OPENAI_API_KEY': JSON.stringify(process.env.OPENAI_API_KEY || ''),
+    'process.env.ANTHROPIC_API_KEY': JSON.stringify(process.env.ANTHROPIC_API_KEY || ''),
   },
 }).catch(() => process.exit(1));

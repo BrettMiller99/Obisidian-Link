@@ -1,29 +1,34 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TAbstractFile, WorkspaceLeaf } from 'obsidian';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { WebScraperService } from './services/web-scraper';
 import { SummarizerService } from './services/summarizer';
 import { SearchService } from './services/search';
-import { GeminiApi } from './utils/gemini-api';
 import { 
 	GeminiLinkSettings, 
 	isValidApiKey, 
 	loadApiKeyFromEnvironment, 
 	saveApiKey, 
-	GEMINI_MODEL_CATEGORIES,
+	MODEL_CATEGORIES,
 	getModelById,
-	GeminiModelOption
+	getModelCategoriesForVendor,
+	getApiKeyForVendor
 } from './types';
+import { AIVendor } from './utils/ai-providers';
 
 const DEFAULT_SETTINGS: GeminiLinkSettings = {
-	apiKey: '',
+	// General settings
+	vendor: AIVendor.GOOGLE, // Default to Google's Gemini
 	model: 'gemini-1.5-pro', // Modern default model
 	maxTokens: 1024,
-	temperature: 0.7
+	temperature: 0.7,
+	
+	// Vendor-specific API keys
+	geminiApiKey: '',
+	openaiApiKey: '',
+	anthropicApiKey: ''
 }
 
 export default class GeminiLinkPlugin extends Plugin {
 	settings: GeminiLinkSettings;
-	geminiApi: GeminiApi | null = null;
 	summarizer: SummarizerService | null = null;
 	searchService: SearchService | null = null;
 	webScraper: WebScraperService | null = null;
@@ -40,8 +45,9 @@ export default class GeminiLinkPlugin extends Plugin {
 
 		// Add ribbon icon for web scraping
 		const ribbonIconEl = this.addRibbonIcon('globe', 'Scrape Website', async () => {
-			if (!this.settings.apiKey) {
-				new Notice('Please set your Gemini API key in the plugin settings');
+			const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+			if (!apiKey) {
+				new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
 				return;
 			}
 			
@@ -53,8 +59,9 @@ export default class GeminiLinkPlugin extends Plugin {
 			id: 'scrape-website',
 			name: 'Scrape Website',
 			callback: () => {
-				if (!this.settings.apiKey) {
-					new Notice('Please set your Gemini API key in the plugin settings');
+				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+				if (!apiKey) {
+					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
 					return;
 				}
 				
@@ -67,8 +74,9 @@ export default class GeminiLinkPlugin extends Plugin {
 			id: 'summarize-selection',
 			name: 'Summarize Selection',
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
-				if (!this.settings.apiKey) {
-					new Notice('Please set your Gemini API key in the plugin settings');
+				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+				if (!apiKey) {
+					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
 					return;
 				}
 				
@@ -100,7 +108,8 @@ export default class GeminiLinkPlugin extends Plugin {
 					// Create content with source reference and the summary
 					// We're NOT adding a title as H1 since Obsidian already displays the filename as the title
 					// Format the summary with proper markdown spacing for better readability
-					const content = `*Generated from [${currentTitle}](${currentFile.path}).*\n\n${this.formatSummaryForReadability(summary.trim())}`;
+					const vendorName = this.settings.vendor.charAt(0).toUpperCase() + this.settings.vendor.slice(1);
+					const content = `*Generated from [${currentTitle}](${currentFile.path}) using ${vendorName} AI.*\n\n${this.formatSummaryForReadability(summary.trim())}`;
 					
 					// Create the new file
 					await this.app.vault.create(newNotePath, content);
@@ -120,13 +129,29 @@ export default class GeminiLinkPlugin extends Plugin {
 			}
 		});
 
+		// Add command for semantic search using AI
+		this.addCommand({
+			id: 'search-vault',
+			name: 'AI Semantic Search',
+			callback: () => {
+				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+				if (!apiKey) {
+					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
+					return;
+				}
+				
+				new SearchModal(this.app, this.searchService!).open();
+			}
+		});
+
 		// Add command for smart search
 		this.addCommand({
 			id: 'smart-search',
 			name: 'Smart Search',
 			callback: () => {
-				if (!this.settings.apiKey) {
-					new Notice('Please set your Gemini API key in the plugin settings');
+				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+				if (!apiKey) {
+					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
 					return;
 				}
 				
@@ -197,31 +222,63 @@ export default class GeminiLinkPlugin extends Plugin {
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 		
-		// Try to load API key from environment if not set in settings
-		if (!this.settings.apiKey) {
-			const envApiKey = loadApiKeyFromEnvironment();
-			if (envApiKey && isValidApiKey(envApiKey)) {
-				console.log('Valid API key loaded from environment');
-				this.settings.apiKey = envApiKey;
+		// Try to load API keys from environment if not set in settings
+		// For Google Gemini
+		if (!this.settings.geminiApiKey) {
+			const envApiKey = loadApiKeyFromEnvironment(AIVendor.GOOGLE);
+			if (envApiKey && isValidApiKey(envApiKey, AIVendor.GOOGLE)) {
+				console.log('Valid Google Gemini API key loaded from environment');
+				this.settings.geminiApiKey = envApiKey;
 				await this.saveData(this.settings);
 				// Also save to localStorage for future use
-				saveApiKey(envApiKey);
+				saveApiKey(envApiKey, AIVendor.GOOGLE);
 			} else if (envApiKey) {
-				console.warn('Invalid API key format found in environment');
+				console.warn('Invalid Google Gemini API key format found in environment');
+			}
+		}
+		
+		// For OpenAI
+		if (!this.settings.openaiApiKey) {
+			const envApiKey = loadApiKeyFromEnvironment(AIVendor.OPENAI);
+			if (envApiKey && isValidApiKey(envApiKey, AIVendor.OPENAI)) {
+				console.log('Valid OpenAI API key loaded from environment');
+				this.settings.openaiApiKey = envApiKey;
+				await this.saveData(this.settings);
+				// Also save to localStorage for future use
+				saveApiKey(envApiKey, AIVendor.OPENAI);
+			} else if (envApiKey) {
+				console.warn('Invalid OpenAI API key format found in environment');
+			}
+		}
+		
+		// For Anthropic
+		if (!this.settings.anthropicApiKey) {
+			const envApiKey = loadApiKeyFromEnvironment(AIVendor.ANTHROPIC);
+			if (envApiKey && isValidApiKey(envApiKey, AIVendor.ANTHROPIC)) {
+				console.log('Valid Anthropic API key loaded from environment');
+				this.settings.anthropicApiKey = envApiKey;
+				await this.saveData(this.settings);
+				// Also save to localStorage for future use
+				saveApiKey(envApiKey, AIVendor.ANTHROPIC);
+			} else if (envApiKey) {
+				console.warn('Invalid Anthropic API key format found in environment');
 			}
 		}
 	}
 
 	async saveSettings() {
-		// Validate API key before saving
-		if (this.settings.apiKey && !isValidApiKey(this.settings.apiKey)) {
-			new Notice('Invalid API key format. Please check your API key.');
+		// Validate API keys before saving
+		const currentVendor = this.settings.vendor;
+		const apiKey = getApiKeyForVendor(this.settings, currentVendor);
+		
+		if (apiKey && !isValidApiKey(apiKey, currentVendor)) {
+			new Notice(`Invalid ${currentVendor} API key format. Please check your API key.`);
 			return;
 		}
 
 		// If API key is valid, also save it to localStorage for future use
-		if (this.settings.apiKey) {
-			saveApiKey(this.settings.apiKey);
+		if (apiKey) {
+			saveApiKey(apiKey, currentVendor);
 		}
 
 		await this.saveData(this.settings);
@@ -229,25 +286,23 @@ export default class GeminiLinkPlugin extends Plugin {
 	}
 
 	initializeServices() {
-		if (this.settings.apiKey) {
+		// Only initialize services if the selected vendor's API key is available
+		const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+		
+		if (apiKey) {
 			try {
-				// Initialize the Gemini API
-				const geminiApi = new GeminiApi(this.settings.apiKey, this.settings);
+				// Initialize services with the current settings
+				this.summarizer = new SummarizerService(this.settings);
+				this.searchService = new SearchService(this.settings, this.app);
+				this.webScraper = new WebScraperService(this.settings);
 				
-				// Initialize services
-				this.webScraper = new WebScraperService(this.settings.apiKey, this.settings);
-				this.summarizer = new SummarizerService(this.settings.apiKey, this.settings);
-				this.searchService = new SearchService(this.settings.apiKey, this.settings, this.app);
-				
-				// Highlighting functionality has been removed
-				
-				console.log('Gemini Link services initialized');
+				console.log(`AI services initialized successfully with ${this.settings.vendor} provider`);
 			} catch (error) {
-				console.error('Error initializing Gemini services:', error);
-				new Notice('Error initializing Gemini services. Check console for details.');
+				console.error(`Error initializing AI services with ${this.settings.vendor} provider:`, error);
+				new Notice(`Error initializing AI services. Check console for details.`);
 			}
 		} else {
-			console.log('No API key found, services not initialized');
+			console.log(`No API key available for ${this.settings.vendor}. AI services not initialized.`);
 		}
 	}
 }
@@ -605,50 +660,62 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Gemini Link Settings' });
+		containerEl.createEl('h2', { text: 'AI Link Settings' });
 
-		// Add API key setting with validation feedback
-		const apiKeyContainer = containerEl.createDiv();
-		apiKeyContainer.addClass('gemini-api-key-container');
+		// Create a container for vendor selection
+		const vendorContainer = containerEl.createDiv();
+		vendorContainer.addClass('ai-vendor-container');
 		
-		const apiKeySetting = new Setting(apiKeyContainer)
-			.setName('API Key')
-			.setDesc('Enter your Gemini API key from Google AI Studio')
-			.addText(text => {
-				text.inputEl.addClass('gemini-api-key-input');
-				text.setPlaceholder('Enter your API key')
-					.setValue(this.plugin.settings.apiKey)
-					.onChange(async (value) => {
-						// Update validation status immediately on change
-						const isValid = isValidApiKey(value);
-						updateApiKeyValidationStatus(apiKeyContainer, isValid, !!value);
-						
-						// Update settings
-						this.plugin.settings.apiKey = value;
-						await this.plugin.saveSettings();
-					});
-				return text;
+		// Add vendor selection heading
+		const vendorHeading = vendorContainer.createEl('h3', { text: 'AI Vendor' });
+		vendorHeading.style.marginBottom = '8px';
+		
+		// Add vendor dropdown
+		new Setting(vendorContainer)
+			.setName('AI Vendor')
+			.setDesc('Select which AI provider to use')
+			.addDropdown(dropdown => {
+				// Add vendor options
+				dropdown.addOption('google', 'Google Gemini');
+				dropdown.addOption('openai', 'OpenAI');
+				dropdown.addOption('anthropic', 'Anthropic Claude');
+				
+				// Set current value
+				dropdown.setValue(this.plugin.settings.vendor);
+				
+				// Handle changes
+				dropdown.onChange(async (value) => {
+					// Update settings
+					this.plugin.settings.vendor = value as AIVendor;
+					
+					// Update the model dropdown with models for this vendor
+					this.display(); // Refresh the entire settings panel
+					
+					// Save settings
+					await this.plugin.saveSettings();
+					
+					// Reinitialize services with the new vendor
+					this.plugin.initializeServices();
+				});
 			});
 		
-		// Add validation status element
-		const validationEl = apiKeyContainer.createDiv();
-		validationEl.addClass('gemini-api-validation-message');
-		validationEl.style.marginTop = '8px';
-		validationEl.style.fontSize = '12px';
+		// Create containers for each vendor's API key
+		const apiKeysContainer = containerEl.createDiv();
+		apiKeysContainer.addClass('ai-api-keys-container');
 		
-		// Initialize validation status
-		const initialApiKey = this.plugin.settings.apiKey;
-		updateApiKeyValidationStatus(apiKeyContainer, isValidApiKey(initialApiKey), !!initialApiKey);
+		// Add API keys heading
+		const apiKeysHeading = apiKeysContainer.createEl('h3', { text: 'API Keys' });
+		apiKeysHeading.style.marginBottom = '8px';
 		
 		// Helper function to update validation status
 		function updateApiKeyValidationStatus(container: HTMLElement, isValid: boolean, hasValue: boolean) {
-			const validationEl = container.querySelector('.gemini-api-validation-message') as HTMLElement;
+			const validationEl = container.querySelector('.api-validation-message') as HTMLElement;
 			if (!validationEl) return;
 			
 			validationEl.empty();
 			
 			if (!hasValue) {
-				validationEl.textContent = 'API key is required to use Gemini features';
+				validationEl.textContent = 'API key is required to use this vendor';
 				validationEl.style.color = 'var(--text-muted)';
 			} else if (isValid) {
 				validationEl.textContent = '✓ API key format is valid';
@@ -658,22 +725,127 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 				validationEl.style.color = 'var(--text-error)';
 			}
 		}
+		
+		// Add Gemini API key input
+		const geminiKeyContainer = apiKeysContainer.createDiv();
+		geminiKeyContainer.addClass('api-key-container');
+		geminiKeyContainer.style.marginBottom = '16px';
+		
+		new Setting(geminiKeyContainer)
+			.setName('Google Gemini API Key')
+			.setDesc('Enter your Google Gemini API key')
+			.addText(text => text
+				.setPlaceholder('Enter your API key')
+				.setValue(this.plugin.settings.geminiApiKey)
+				.onChange(async (value) => {
+					// Update the validation status
+					updateApiKeyValidationStatus(geminiKeyContainer, isValidApiKey(value, AIVendor.GOOGLE), !!value);
+					
+					// Update settings
+					this.plugin.settings.geminiApiKey = value;
+					await this.plugin.saveSettings();
+					
+					// Reinitialize services if this is the current vendor
+					if (this.plugin.settings.vendor === AIVendor.GOOGLE) {
+						this.plugin.initializeServices();
+					}
+				}));
+		
+		// Add validation status element for Gemini
+		const geminiValidationEl = geminiKeyContainer.createDiv();
+		geminiValidationEl.addClass('api-validation-message');
+		geminiValidationEl.style.marginTop = '8px';
+		geminiValidationEl.style.fontSize = '12px';
+		
+		// Initialize validation status for Gemini
+		updateApiKeyValidationStatus(geminiKeyContainer, isValidApiKey(this.plugin.settings.geminiApiKey, AIVendor.GOOGLE), !!this.plugin.settings.geminiApiKey);
+		
+		// Add OpenAI API key input
+		const openaiKeyContainer = apiKeysContainer.createDiv();
+		openaiKeyContainer.addClass('api-key-container');
+		openaiKeyContainer.style.marginBottom = '16px';
+		
+		new Setting(openaiKeyContainer)
+			.setName('OpenAI API Key')
+			.setDesc('Enter your OpenAI API key')
+			.addText(text => text
+				.setPlaceholder('Enter your API key')
+				.setValue(this.plugin.settings.openaiApiKey)
+				.onChange(async (value) => {
+					// Update the validation status
+					updateApiKeyValidationStatus(openaiKeyContainer, isValidApiKey(value, AIVendor.OPENAI), !!value);
+					
+					// Update settings
+					this.plugin.settings.openaiApiKey = value;
+					await this.plugin.saveSettings();
+					
+					// Reinitialize services if this is the current vendor
+					if (this.plugin.settings.vendor === AIVendor.OPENAI) {
+						this.plugin.initializeServices();
+					}
+				}));
+		
+		// Add validation status element for OpenAI
+		const openaiValidationEl = openaiKeyContainer.createDiv();
+		openaiValidationEl.addClass('api-validation-message');
+		openaiValidationEl.style.marginTop = '8px';
+		openaiValidationEl.style.fontSize = '12px';
+		
+		// Initialize validation status for OpenAI
+		updateApiKeyValidationStatus(openaiKeyContainer, isValidApiKey(this.plugin.settings.openaiApiKey, AIVendor.OPENAI), !!this.plugin.settings.openaiApiKey);
+		
+		// Add Anthropic API key input
+		const anthropicKeyContainer = apiKeysContainer.createDiv();
+		anthropicKeyContainer.addClass('api-key-container');
+		anthropicKeyContainer.style.marginBottom = '16px';
+		
+		new Setting(anthropicKeyContainer)
+			.setName('Anthropic Claude API Key')
+			.setDesc('Enter your Anthropic Claude API key')
+			.addText(text => text
+				.setPlaceholder('Enter your API key')
+				.setValue(this.plugin.settings.anthropicApiKey)
+				.onChange(async (value) => {
+					// Update the validation status
+					updateApiKeyValidationStatus(anthropicKeyContainer, isValidApiKey(value, AIVendor.ANTHROPIC), !!value);
+					
+					// Update settings
+					this.plugin.settings.anthropicApiKey = value;
+					await this.plugin.saveSettings();
+					
+					// Reinitialize services if this is the current vendor
+					if (this.plugin.settings.vendor === AIVendor.ANTHROPIC) {
+						this.plugin.initializeServices();
+					}
+				}));
+		
+		// Add validation status element for Anthropic
+		const anthropicValidationEl = anthropicKeyContainer.createDiv();
+		anthropicValidationEl.addClass('api-validation-message');
+		anthropicValidationEl.style.marginTop = '8px';
+		anthropicValidationEl.style.fontSize = '12px';
+		
+		// Initialize validation status for Anthropic
+		updateApiKeyValidationStatus(anthropicKeyContainer, isValidApiKey(this.plugin.settings.anthropicApiKey, AIVendor.ANTHROPIC), !!this.plugin.settings.anthropicApiKey);
 
 		// Create a container for model selection
 		const modelContainer = containerEl.createDiv();
-		modelContainer.addClass('gemini-model-container');
+		modelContainer.addClass('ai-model-container');
 		
 		// Add model selection heading
 		const modelHeading = modelContainer.createEl('h3', { text: 'Model Selection' });
 		modelHeading.style.marginBottom = '8px';
 		
-		// Add model dropdown with all available models grouped by category
+		// Get model categories for the current vendor
+		const vendorCategories = getModelCategoriesForVendor(this.plugin.settings.vendor);
+		
+		// Add model dropdown with available models for the selected vendor
 		const modelSetting = new Setting(modelContainer)
 			.setName('Model')
-			.setDesc('Select the Gemini model to use for AI features')
+			.setDesc(`Select the ${this.plugin.settings.vendor} model to use for AI features`)
 			.addDropdown(dropdown => {
 				// Add model options grouped by category
-				for (const category of GEMINI_MODEL_CATEGORIES) {
+				for (const category of vendorCategories) {
 					// Add category as a group header (non-selectable)
 					dropdown.addOption(`--${category.name}--`, `--- ${category.name} ---`);
 					
@@ -683,8 +855,21 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 					}
 				}
 				
-				// Set the current value
-				dropdown.setValue(this.plugin.settings.model);
+				// Set the current value if it's available for this vendor, otherwise use the first model
+				const currentModel = this.plugin.settings.model;
+				const modelExists = vendorCategories.some(category => 
+					category.models.some(model => model.id === currentModel));
+				
+				if (modelExists) {
+					dropdown.setValue(currentModel);
+				} else if (vendorCategories.length > 0 && vendorCategories[0].models.length > 0) {
+					// Use the first model of the first category as default
+					const defaultModel = vendorCategories[0].models[0].id;
+					dropdown.setValue(defaultModel);
+					// Update settings with the new default model
+					this.plugin.settings.model = defaultModel;
+					this.plugin.saveSettings();
+				}
 				
 				// Handle changes
 				dropdown.onChange(async (value: string) => {
@@ -696,15 +881,18 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 					}
 					
 					// Update model description
-					const model = getModelById(value as GeminiModelOption);
+					const model = getModelById(value);
 					if (model && modelDescEl) {
 						modelDescEl.empty();
 						modelDescEl.textContent = model.description;
 					}
 					
 					// Update settings
-					this.plugin.settings.model = value as GeminiModelOption;
+					this.plugin.settings.model = value;
 					await this.plugin.saveSettings();
+					
+					// Reinitialize services with the new model
+					this.plugin.initializeServices();
 				});
 				
 				return dropdown;
@@ -712,7 +900,7 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 		
 		// Add model description element
 		const modelDescEl = modelContainer.createDiv();
-		modelDescEl.addClass('gemini-model-description');
+		modelDescEl.addClass('ai-model-description');
 		modelDescEl.style.marginTop = '8px';
 		modelDescEl.style.marginBottom = '16px';
 		modelDescEl.style.fontSize = '12px';

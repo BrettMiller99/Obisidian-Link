@@ -1,6 +1,6 @@
 import { App, TFile } from 'obsidian';
-import { GeminiApi } from '../utils/gemini-api';
-import { GeminiLinkSettings } from '../types.js';
+import { GeminiLinkSettings, getApiKeyForVendor } from '../types.js';
+import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 interface SearchResult {
     title: string;
@@ -12,15 +12,26 @@ interface SearchResult {
 }
 
 export class SearchService {
-    private geminiApi: GeminiApi;
+    private aiProvider: AIProvider;
     private settings: GeminiLinkSettings;
     private app: App;
     private highlightStorage: Map<string, { terms: string[], relevantSection?: string }> = new Map();
 
-    constructor(apiKey: string, settings: GeminiLinkSettings, app: App) {
+    constructor(settings: GeminiLinkSettings, app: App) {
         this.settings = settings;
         this.app = app;
-        this.geminiApi = new GeminiApi(apiKey, settings);
+        
+        // Get the appropriate API key for the selected vendor
+        const apiKey = getApiKeyForVendor(settings, settings.vendor);
+        
+        // Create the AI provider using the factory
+        this.aiProvider = AIProviderFactory.createProvider({
+            apiKey,
+            model: settings.model,
+            maxTokens: settings.maxTokens,
+            temperature: settings.temperature,
+            vendor: settings.vendor
+        });
     }
 
     /**
@@ -410,7 +421,7 @@ Excerpt: ${result.excerpt}`;
                 Only include documents with scores of 0.6 or higher. Sort them by relevance score (highest first).
             `;
             
-            const responseText = await this.geminiApi.generateContent(prompt);
+            const responseText = await this.aiProvider.generateContent(prompt);
             
             // Extract JSON from response
             const jsonMatch = responseText.match(/\[[\s\S]*\]/);

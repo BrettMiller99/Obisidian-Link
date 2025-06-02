@@ -1,13 +1,24 @@
-import { GeminiApi } from '../utils/gemini-api';
-import { GeminiLinkSettings } from '../types.js';
+import { GeminiLinkSettings, getApiKeyForVendor } from '../types.js';
+import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 export class WebScraperService {
-    private geminiApi: GeminiApi;
+    private aiProvider: AIProvider;
     private settings: GeminiLinkSettings;
 
-    constructor(apiKey: string, settings: GeminiLinkSettings) {
+    constructor(settings: GeminiLinkSettings) {
         this.settings = settings;
-        this.geminiApi = new GeminiApi(apiKey, settings);
+        
+        // Get the appropriate API key for the selected vendor
+        const apiKey = getApiKeyForVendor(settings, settings.vendor);
+        
+        // Create the AI provider using the factory
+        this.aiProvider = AIProviderFactory.createProvider({
+            apiKey,
+            model: settings.model,
+            maxTokens: settings.maxTokens,
+            temperature: settings.temperature,
+            vendor: settings.vendor
+        });
     }
 
     /**
@@ -48,7 +59,7 @@ export class WebScraperService {
                 ${html.substring(0, 100000)} // Limit to avoid token limits
             `;
             
-            return await this.geminiApi.generateContent(prompt);
+            return await this.aiProvider.generateContent(prompt);
         } catch (error) {
             console.error('Error scraping website:', error);
             throw new Error(`Failed to scrape website: ${error.message}`);
