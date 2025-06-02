@@ -1,15 +1,13 @@
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { GeminiLinkSettings } from '../types';
+import { GeminiApi } from '../utils/gemini-api';
+import { GeminiLinkSettings } from '../types.js';
 
 export class SummarizerService {
-    private genAI: GoogleGenerativeAI;
-    private model: GenerativeModel;
+    private geminiApi: GeminiApi;
     private settings: GeminiLinkSettings;
 
-    constructor(genAI: GoogleGenerativeAI, settings: GeminiLinkSettings) {
-        this.genAI = genAI;
+    constructor(apiKey: string, settings: GeminiLinkSettings) {
         this.settings = settings;
-        this.model = this.genAI.getGenerativeModel({ model: this.settings.model });
+        this.geminiApi = new GeminiApi(apiKey, settings);
     }
 
     /**
@@ -28,15 +26,7 @@ export class SummarizerService {
                 ${content}
             `;
             
-            const result = await this.model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: this.settings.temperature,
-                    maxOutputTokens: this.settings.maxTokens,
-                }
-            });
-            
-            return result.response.text();
+            return await this.geminiApi.generateContent(prompt);
         } catch (error) {
             console.error('Error summarizing content:', error);
             throw new Error(`Failed to summarize content: ${error.message}`);

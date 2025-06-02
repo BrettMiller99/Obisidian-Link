@@ -3,13 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { WebScraperService } from './services/web-scraper';
 import { SummarizerService } from './services/summarizer';
 import { SearchService } from './services/search';
-
-interface GeminiLinkSettings {
-	apiKey: string;
-	model: string;
-	maxTokens: number;
-	temperature: number;
-}
+import { GeminiLinkSettings, loadApiKeyFromEnvironment, isValidApiKey, saveApiKey } from './types.js';
 
 const DEFAULT_SETTINGS: GeminiLinkSettings = {
 	apiKey: '',
@@ -20,7 +14,6 @@ const DEFAULT_SETTINGS: GeminiLinkSettings = {
 
 export default class GeminiLinkPlugin extends Plugin {
 	settings: GeminiLinkSettings;
-	genAI: GoogleGenerativeAI | null = null;
 	webScraper: WebScraperService | null = null;
 	summarizer: SummarizerService | null = null;
 	searchService: SearchService | null = null;
@@ -107,9 +100,34 @@ export default class GeminiLinkPlugin extends Plugin {
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		
+		// Try to load API key from environment if not set in settings
+		if (!this.settings.apiKey) {
+			const envApiKey = loadApiKeyFromEnvironment();
+			if (envApiKey && isValidApiKey(envApiKey)) {
+				console.log('Valid API key loaded from environment');
+				this.settings.apiKey = envApiKey;
+				await this.saveData(this.settings);
+				// Also save to localStorage for future use
+				saveApiKey(envApiKey);
+			} else if (envApiKey) {
+				console.warn('Invalid API key format found in environment');
+			}
+		}
 	}
 
 	async saveSettings() {
+		// Validate API key before saving
+		if (this.settings.apiKey && !isValidApiKey(this.settings.apiKey)) {
+			new Notice('Invalid API key format. Please check your API key.');
+			return;
+		}
+
+		// If API key is valid, also save it to localStorage for future use
+		if (this.settings.apiKey) {
+			saveApiKey(this.settings.apiKey);
+		}
+
 		await this.saveData(this.settings);
 		this.initializeServices();
 	}
@@ -117,10 +135,10 @@ export default class GeminiLinkPlugin extends Plugin {
 	initializeServices() {
 		if (this.settings.apiKey) {
 			try {
-				this.genAI = new GoogleGenerativeAI(this.settings.apiKey);
-				this.webScraper = new WebScraperService(this.genAI, this.settings);
-				this.summarizer = new SummarizerService(this.genAI, this.settings);
-				this.searchService = new SearchService(this.genAI, this.settings, this.app);
+				// Initialize services with API key directly
+				this.webScraper = new WebScraperService(this.settings.apiKey, this.settings);
+				this.summarizer = new SummarizerService(this.settings.apiKey, this.settings);
+				this.searchService = new SearchService(this.settings.apiKey, this.settings, this.app);
 			} catch (error) {
 				console.error('Error initializing Gemini services:', error);
 				new Notice('Error initializing Gemini services. Check console for details.');
@@ -316,16 +334,57 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Gemini Link Settings' });
 
-		new Setting(containerEl)
+		// Add API key setting with validation feedback
+		const apiKeyContainer = containerEl.createDiv();
+		apiKeyContainer.addClass('gemini-api-key-container');
+		
+		const apiKeySetting = new Setting(apiKeyContainer)
 			.setName('API Key')
 			.setDesc('Enter your Gemini API key from Google AI Studio')
-			.addText(text => text
-				.setPlaceholder('Enter your API key')
-				.setValue(this.plugin.settings.apiKey)
-				.onChange(async (value) => {
-					this.plugin.settings.apiKey = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				text.inputEl.addClass('gemini-api-key-input');
+				text.setPlaceholder('Enter your API key')
+					.setValue(this.plugin.settings.apiKey)
+					.onChange(async (value) => {
+						// Update validation status immediately on change
+						const isValid = isValidApiKey(value);
+						updateApiKeyValidationStatus(apiKeyContainer, isValid, !!value);
+						
+						// Update settings
+						this.plugin.settings.apiKey = value;
+						await this.plugin.saveSettings();
+					});
+				return text;
+			});
+		
+		// Add validation status element
+		const validationEl = apiKeyContainer.createDiv();
+		validationEl.addClass('gemini-api-validation-message');
+		validationEl.style.marginTop = '8px';
+		validationEl.style.fontSize = '12px';
+		
+		// Initialize validation status
+		const initialApiKey = this.plugin.settings.apiKey;
+		updateApiKeyValidationStatus(apiKeyContainer, isValidApiKey(initialApiKey), !!initialApiKey);
+		
+		// Helper function to update validation status
+		function updateApiKeyValidationStatus(container: HTMLElement, isValid: boolean, hasValue: boolean) {
+			const validationEl = container.querySelector('.gemini-api-validation-message') as HTMLElement;
+			if (!validationEl) return;
+			
+			validationEl.empty();
+			
+			if (!hasValue) {
+				validationEl.textContent = 'API key is required to use Gemini features';
+				validationEl.style.color = 'var(--text-muted)';
+			} else if (isValid) {
+				validationEl.textContent = '✓ API key format is valid';
+				validationEl.style.color = 'var(--text-success)';
+			} else {
+				validationEl.textContent = '⚠ Invalid API key format';
+				validationEl.style.color = 'var(--text-error)';
+			}
+		}
 
 		new Setting(containerEl)
 			.setName('Model')

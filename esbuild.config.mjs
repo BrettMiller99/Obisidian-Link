@@ -1,6 +1,10 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
+import { config } from "dotenv";
+
+// Load environment variables from .env file
+config();
 
 const banner =
 `/*
@@ -29,4 +33,8 @@ esbuild.build({
   sourcemap: prod ? false : "inline",
   treeShaking: true,
   outfile: "main.js",
+  define: {
+    // Define environment variables for the build
+    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || ''),
+  },
 }).catch(() => process.exit(1));

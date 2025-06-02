@@ -1,6 +1,6 @@
 import { App, TFile } from 'obsidian';
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { GeminiLinkSettings } from '../types';
+import { GeminiApi } from '../utils/gemini-api';
+import { GeminiLinkSettings } from '../types.js';
 
 interface SearchResult {
     title: string;
@@ -10,16 +10,14 @@ interface SearchResult {
 }
 
 export class SearchService {
-    private genAI: GoogleGenerativeAI;
-    private model: GenerativeModel;
+    private geminiApi: GeminiApi;
     private settings: GeminiLinkSettings;
     private app: App;
 
-    constructor(genAI: GoogleGenerativeAI, settings: GeminiLinkSettings, app: App) {
-        this.genAI = genAI;
+    constructor(apiKey: string, settings: GeminiLinkSettings, app: App) {
         this.settings = settings;
         this.app = app;
-        this.model = this.genAI.getGenerativeModel({ model: this.settings.model });
+        this.geminiApi = new GeminiApi(apiKey, settings);
     }
 
     /**
@@ -120,8 +118,7 @@ Excerpt: ${result.excerpt}`;
                 Only include results that are actually relevant to the query.
             `;
             
-            const result = await this.model.generateContent(prompt);
-            const responseText = result.response.text();
+            const responseText = await this.geminiApi.generateContent(prompt);
             
             // Extract JSON from response
             const jsonMatch = responseText.match(/\[[\s\S]*\]/);
@@ -133,7 +130,7 @@ Excerpt: ${result.excerpt}`;
             const rankings = JSON.parse(jsonMatch[0]);
             
             // Update scores and sort results
-            const enhancedResults = rankings.map(ranking => {
+            const enhancedResults = rankings.map((ranking: { index: number; score: number; reason: string }) => {
                 const originalResult = results[ranking.index - 1];
                 return {
                     ...originalResult,
@@ -143,7 +140,7 @@ Excerpt: ${result.excerpt}`;
             });
             
             // Sort by score (highest first)
-            return enhancedResults.sort((a, b) => b.score - a.score);
+            return enhancedResults.sort((a: SearchResult, b: SearchResult) => b.score - a.score);
         } catch (error) {
             console.error('Error enhancing search results:', error);
             return results; // Return original results if enhancement fails

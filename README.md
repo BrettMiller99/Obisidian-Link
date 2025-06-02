@@ -18,7 +18,12 @@ A plugin for Obsidian that integrates with Google's Gemini AI to enhance your no
 ## Configuration
 
 1. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-2. Enter your API key in the plugin settings
+2. Set up your API key using one of these methods:
+   - **Environment File (Recommended for Development)**: 
+     - Copy `.env.example` to `.env` in the project root
+     - Add your API key to the `.env` file: `GEMINI_API_KEY=your_api_key_here`
+     - The `.env` file is git-ignored for security
+   - **Plugin Settings**: Enter your API key in the plugin settings panel in Obsidian
 
 ## Usage
 

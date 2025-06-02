@@ -64,6 +64,19 @@ mklink /D "C:\path\to\your\obsidian\vault\.obsidian\plugins\obsidian-gemini-link
 
 ## Configuration
 
+### For Development
+
+When developing the plugin, you can set your API key using environment variables:
+
+1. Create a `.env` file in the root directory of the project (based on `.env.example`)
+2. Add your Gemini API key to the file:
+   ```
+   GEMINI_API_KEY=your_api_key_here
+   ```
+3. The build process will automatically inject this environment variable into the plugin
+
+### For End Users
+
 After installing the plugin:
 
 1. Open Obsidian Settings
