@@ -97,8 +97,10 @@ export default class GeminiLinkPlugin extends Plugin {
 					const folder = currentFile.parent?.path || '';
 					const newNotePath = `${folder ? folder + '/' : ''}${newNoteTitle}.md`;
 					
-					// Create content with a header and the summary
-					const content = `# ${newNoteTitle}\n\n*Generated from [${currentTitle}](${currentFile.path}).*\n\n${summary}`;
+					// Create content with source reference and the summary
+					// We're NOT adding a title as H1 since Obsidian already displays the filename as the title
+					// Format the summary with proper markdown spacing for better readability
+					const content = `*Generated from [${currentTitle}](${currentFile.path}).*\n\n${this.formatSummaryForReadability(summary.trim())}`;
 					
 					// Create the new file
 					await this.app.vault.create(newNotePath, content);
@@ -137,11 +139,59 @@ export default class GeminiLinkPlugin extends Plugin {
 	}
 
 	onunload() {
-		// Clean up any active highlights
-		// Highlighting functionality has been removed
-		
-		// Clean up other resources if needed
 		console.log('Unloading Gemini Link plugin');
+	}
+
+	/**
+	 * Formats a summary for better readability with proper markdown spacing
+	 * @param summary The raw summary text
+	 * @returns Formatted summary with improved readability
+	 */
+	private formatSummaryForReadability(summary: string): string {
+		// Split the summary into paragraphs
+		const paragraphs = summary.split(/\n\s*\n/);
+		
+		// Process each paragraph
+		const formattedParagraphs = paragraphs.map(paragraph => {
+			// Trim whitespace
+			paragraph = paragraph.trim();
+			
+			// If it's already a list item or a heading, leave it as is
+			if (paragraph.startsWith('-') || paragraph.startsWith('*') || paragraph.startsWith('#') || 
+				paragraph.startsWith('>') || paragraph.startsWith('1.') || paragraph.startsWith('```')) {
+				return paragraph;
+			}
+			
+			// If it's a very long paragraph (over 100 chars), add soft line breaks for readability
+			if (paragraph.length > 100 && !paragraph.includes('\n')) {
+				// Split into sentences
+				const sentences = paragraph.split(/(?<=\.)\s+/);
+				
+				// Group sentences to create reasonable line lengths
+				let formattedParagraph = '';
+				let currentLine = '';
+				
+				for (const sentence of sentences) {
+					if (currentLine.length + sentence.length > 80) {
+						formattedParagraph += currentLine + '\n';
+						currentLine = sentence;
+					} else {
+						currentLine += (currentLine ? ' ' : '') + sentence;
+					}
+				}
+				
+				if (currentLine) {
+					formattedParagraph += currentLine;
+				}
+				
+				return formattedParagraph;
+			}
+			
+			return paragraph;
+		});
+		
+		// Join paragraphs with double line breaks for better spacing
+		return formattedParagraphs.join('\n\n');
 	}
 
 	async loadSettings() {
