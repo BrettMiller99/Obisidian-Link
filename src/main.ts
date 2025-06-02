@@ -3,7 +3,7 @@ import { WebScraperService } from './services/web-scraper';
 import { SummarizerService } from './services/summarizer';
 import { SearchService } from './services/search';
 import { 
-	GeminiLinkSettings, 
+	ObsidianLinkSettings, 
 	isValidApiKey, 
 	loadApiKeyFromEnvironment, 
 	saveApiKey, 
@@ -14,7 +14,7 @@ import {
 } from './types';
 import { AIVendor } from './utils/ai-providers';
 
-const DEFAULT_SETTINGS: GeminiLinkSettings = {
+const DEFAULT_SETTINGS: ObsidianLinkSettings = {
 	// General settings
 	vendor: AIVendor.GOOGLE, // Default to Google's Gemini
 	model: 'gemini-1.5-pro', // Modern default model
@@ -27,8 +27,8 @@ const DEFAULT_SETTINGS: GeminiLinkSettings = {
 	anthropicApiKey: ''
 }
 
-export default class GeminiLinkPlugin extends Plugin {
-	settings: GeminiLinkSettings;
+export default class ObsidianLinkPlugin extends Plugin {
+	settings: ObsidianLinkSettings;
 	summarizer: SummarizerService | null = null;
 	searchService: SearchService | null = null;
 	webScraper: WebScraperService | null = null;
@@ -96,7 +96,7 @@ export default class GeminiLinkPlugin extends Plugin {
 					
 					// Get the current file title without extension
 					const currentTitle = currentFile.basename;
-					const newNoteTitle = `${currentTitle} Gemini Summarization`;
+					const newNoteTitle = `${currentTitle} Summary`;
 					
 					new Notice('Generating summary...');
 					const summary = await this.summarizer!.summarize(selection);
@@ -109,7 +109,7 @@ export default class GeminiLinkPlugin extends Plugin {
 					// We're NOT adding a title as H1 since Obsidian already displays the filename as the title
 					// Format the summary with proper markdown spacing for better readability
 					const vendorName = this.settings.vendor.charAt(0).toUpperCase() + this.settings.vendor.slice(1);
-					const content = `*Generated from [${currentTitle}](${currentFile.path}) using ${vendorName} AI.*\n\n${this.formatSummaryForReadability(summary.trim())}`;
+					const content = `*Generated from [${currentTitle}](${currentFile.path}) using Obsidian-Link (${vendorName}).*\n\n${this.formatSummaryForReadability(summary.trim())}`;
 					
 					// Create the new file
 					await this.app.vault.create(newNotePath, content);
@@ -129,25 +129,10 @@ export default class GeminiLinkPlugin extends Plugin {
 			}
 		});
 
-		// Add command for semantic search using AI
+		// Add command for semantic search
 		this.addCommand({
-			id: 'search-vault',
-			name: 'AI Semantic Search',
-			callback: () => {
-				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-				if (!apiKey) {
-					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
-					return;
-				}
-				
-				new SearchModal(this.app, this.searchService!).open();
-			}
-		});
-
-		// Add command for smart search
-		this.addCommand({
-			id: 'smart-search',
-			name: 'Smart Search',
+			id: 'semantic-search',
+			name: 'Semantic Search',
 			callback: () => {
 				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
 				if (!apiKey) {
@@ -160,7 +145,7 @@ export default class GeminiLinkPlugin extends Plugin {
 		});
 
 		// Add settings tab
-		this.addSettingTab(new GeminiLinkSettingTab(this.app, this));
+		this.addSettingTab(new ObsidianLinkSettingTab(this.app, this));
 	}
 
 	onunload() {
@@ -230,8 +215,8 @@ export default class GeminiLinkPlugin extends Plugin {
 				console.log('Valid Google Gemini API key loaded from environment');
 				this.settings.geminiApiKey = envApiKey;
 				await this.saveData(this.settings);
-				// Also save to localStorage for future use
-				saveApiKey(envApiKey, AIVendor.GOOGLE);
+				// Save to plugin settings (more secure than localStorage)
+				saveApiKey(envApiKey, AIVendor.GOOGLE, this);
 			} else if (envApiKey) {
 				console.warn('Invalid Google Gemini API key format found in environment');
 			}
@@ -244,8 +229,8 @@ export default class GeminiLinkPlugin extends Plugin {
 				console.log('Valid OpenAI API key loaded from environment');
 				this.settings.openaiApiKey = envApiKey;
 				await this.saveData(this.settings);
-				// Also save to localStorage for future use
-				saveApiKey(envApiKey, AIVendor.OPENAI);
+				// Save to plugin settings (more secure than localStorage)
+				saveApiKey(envApiKey, AIVendor.OPENAI, this);
 			} else if (envApiKey) {
 				console.warn('Invalid OpenAI API key format found in environment');
 			}
@@ -258,8 +243,8 @@ export default class GeminiLinkPlugin extends Plugin {
 				console.log('Valid Anthropic API key loaded from environment');
 				this.settings.anthropicApiKey = envApiKey;
 				await this.saveData(this.settings);
-				// Also save to localStorage for future use
-				saveApiKey(envApiKey, AIVendor.ANTHROPIC);
+				// Save to plugin settings (more secure than localStorage)
+				saveApiKey(envApiKey, AIVendor.ANTHROPIC, this);
 			} else if (envApiKey) {
 				console.warn('Invalid Anthropic API key format found in environment');
 			}
@@ -276,9 +261,9 @@ export default class GeminiLinkPlugin extends Plugin {
 			return;
 		}
 
-		// If API key is valid, also save it to localStorage for future use
+		// If API key is valid, save it to plugin settings (more secure than localStorage)
 		if (apiKey) {
-			saveApiKey(apiKey, currentVendor);
+			saveApiKey(apiKey, currentVendor, this);
 		}
 
 		await this.saveData(this.settings);
@@ -647,10 +632,10 @@ class SearchModal extends Modal {
 	}
 }
 
-class GeminiLinkSettingTab extends PluginSettingTab {
-	plugin: GeminiLinkPlugin;
+class ObsidianLinkSettingTab extends PluginSettingTab {
+	plugin: ObsidianLinkPlugin;
 
-	constructor(app: App, plugin: GeminiLinkPlugin) {
+	constructor(app: App, plugin: ObsidianLinkPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -703,9 +688,24 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 		const apiKeysContainer = containerEl.createDiv();
 		apiKeysContainer.addClass('ai-api-keys-container');
 		
-		// Add API keys heading
+		// Add API keys heading with security note
 		const apiKeysHeading = apiKeysContainer.createEl('h3', { text: 'API Keys' });
 		apiKeysHeading.style.marginBottom = '8px';
+		
+		// Add security notice
+		const securityNotice = apiKeysContainer.createEl('div', { cls: 'setting-item-description' });
+		securityNotice.innerHTML = '⚠️ <strong>Security Note:</strong> API keys are stored in your Obsidian vault\'s config folder. ' + 
+			'They are not shared with any third parties except the AI provider you select.<br><br>' +
+			'<strong>Security Recommendations:</strong><br>' +
+			'• Use environment variables during development<br>' +
+			'• Never commit API keys to version control<br>' +
+			'• Keep your Obsidian vault secure<br>' +
+			'• Regularly rotate your API keys';
+		securityNotice.style.marginBottom = '16px';
+		securityNotice.style.padding = '8px';
+		securityNotice.style.border = '1px solid var(--background-modifier-border)';
+		securityNotice.style.borderRadius = '4px';
+		securityNotice.style.backgroundColor = 'var(--background-secondary)';
 		
 		// Helper function to update validation status
 		function updateApiKeyValidationStatus(container: HTMLElement, isValid: boolean, hasValue: boolean) {
@@ -731,25 +731,53 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 		geminiKeyContainer.addClass('api-key-container');
 		geminiKeyContainer.style.marginBottom = '16px';
 		
-		new Setting(geminiKeyContainer)
+		const geminiSetting = new Setting(geminiKeyContainer)
 			.setName('Google Gemini API Key')
-			.setDesc('Enter your Google Gemini API key')
-			.addText(text => text
-				.setPlaceholder('Enter your API key')
-				.setValue(this.plugin.settings.geminiApiKey)
-				.onChange(async (value) => {
-					// Update the validation status
-					updateApiKeyValidationStatus(geminiKeyContainer, isValidApiKey(value, AIVendor.GOOGLE), !!value);
+			.setDesc('Enter your Google Gemini API key (starts with "AI")')
+			.addText(text => {
+				text.setPlaceholder('Enter your API key')
+					.setValue(this.plugin.settings.geminiApiKey)
+					.onChange(async (value) => {
+						// Update the validation status
+						updateApiKeyValidationStatus(geminiKeyContainer, isValidApiKey(value, AIVendor.GOOGLE), !!value);
+						
+						// Update settings
+						this.plugin.settings.geminiApiKey = value;
+						await this.plugin.saveSettings();
+						
+						// Reinitialize services if this is the current vendor
+						if (this.plugin.settings.vendor === AIVendor.GOOGLE) {
+							this.plugin.initializeServices();
+						}
+					});
 					
-					// Update settings
-					this.plugin.settings.geminiApiKey = value;
-					await this.plugin.saveSettings();
-					
-					// Reinitialize services if this is the current vendor
-					if (this.plugin.settings.vendor === AIVendor.GOOGLE) {
-						this.plugin.initializeServices();
-					}
-				}));
+				// Set as password field by default
+				text.inputEl.type = 'password';
+				return text;
+			})
+			.addExtraButton(button => 
+				button
+					.setIcon('eye-off')
+					.setTooltip('Show API key')
+					.onClick(() => {
+						const textInput = geminiSetting.controlEl.querySelector('input');
+						if (textInput) {
+							if (textInput.type === 'password') {
+								textInput.type = 'text';
+								button.setIcon('eye');
+								button.setTooltip('Hide API key');
+							} else {
+								textInput.type = 'password';
+								button.setIcon('eye-off');
+								button.setTooltip('Show API key');
+							}
+						}
+					}))
+			.addExtraButton(button => 
+				button
+					.setIcon('shield')
+					.setTooltip('Stored securely in Obsidian config')
+					.onClick(() => {}));
 		
 		// Add validation status element for Gemini
 		const geminiValidationEl = geminiKeyContainer.createDiv();
@@ -765,25 +793,53 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 		openaiKeyContainer.addClass('api-key-container');
 		openaiKeyContainer.style.marginBottom = '16px';
 		
-		new Setting(openaiKeyContainer)
+		const openaiSetting = new Setting(openaiKeyContainer)
 			.setName('OpenAI API Key')
-			.setDesc('Enter your OpenAI API key')
-			.addText(text => text
-				.setPlaceholder('Enter your API key')
-				.setValue(this.plugin.settings.openaiApiKey)
-				.onChange(async (value) => {
-					// Update the validation status
-					updateApiKeyValidationStatus(openaiKeyContainer, isValidApiKey(value, AIVendor.OPENAI), !!value);
+			.setDesc('Enter your OpenAI API key (starts with "sk-")')
+			.addText(text => {
+				text.setPlaceholder('Enter your API key')
+					.setValue(this.plugin.settings.openaiApiKey)
+					.onChange(async (value) => {
+						// Update the validation status
+						updateApiKeyValidationStatus(openaiKeyContainer, isValidApiKey(value, AIVendor.OPENAI), !!value);
+						
+						// Update settings
+						this.plugin.settings.openaiApiKey = value;
+						await this.plugin.saveSettings();
+						
+						// Reinitialize services if this is the current vendor
+						if (this.plugin.settings.vendor === AIVendor.OPENAI) {
+							this.plugin.initializeServices();
+						}
+					});
 					
-					// Update settings
-					this.plugin.settings.openaiApiKey = value;
-					await this.plugin.saveSettings();
-					
-					// Reinitialize services if this is the current vendor
-					if (this.plugin.settings.vendor === AIVendor.OPENAI) {
-						this.plugin.initializeServices();
-					}
-				}));
+				// Set as password field by default
+				text.inputEl.type = 'password';
+				return text;
+			})
+			.addExtraButton(button => 
+				button
+					.setIcon('eye-off')
+					.setTooltip('Show API key')
+					.onClick(() => {
+						const textInput = openaiSetting.controlEl.querySelector('input');
+						if (textInput) {
+							if (textInput.type === 'password') {
+								textInput.type = 'text';
+								button.setIcon('eye');
+								button.setTooltip('Hide API key');
+							} else {
+								textInput.type = 'password';
+								button.setIcon('eye-off');
+								button.setTooltip('Show API key');
+							}
+						}
+					}))
+			.addExtraButton(button => 
+				button
+					.setIcon('shield')
+					.setTooltip('Stored securely in Obsidian config')
+					.onClick(() => {}));
 		
 		// Add validation status element for OpenAI
 		const openaiValidationEl = openaiKeyContainer.createDiv();
@@ -799,25 +855,53 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 		anthropicKeyContainer.addClass('api-key-container');
 		anthropicKeyContainer.style.marginBottom = '16px';
 		
-		new Setting(anthropicKeyContainer)
-			.setName('Anthropic Claude API Key')
-			.setDesc('Enter your Anthropic Claude API key')
-			.addText(text => text
-				.setPlaceholder('Enter your API key')
-				.setValue(this.plugin.settings.anthropicApiKey)
-				.onChange(async (value) => {
-					// Update the validation status
-					updateApiKeyValidationStatus(anthropicKeyContainer, isValidApiKey(value, AIVendor.ANTHROPIC), !!value);
+		const anthropicSetting = new Setting(anthropicKeyContainer)
+			.setName('Anthropic API Key')
+			.setDesc('Enter your Anthropic API key (starts with "sk-ant-")')
+			.addText(text => {
+				text.setPlaceholder('Enter your API key')
+					.setValue(this.plugin.settings.anthropicApiKey)
+					.onChange(async (value) => {
+						// Update the validation status
+						updateApiKeyValidationStatus(anthropicKeyContainer, isValidApiKey(value, AIVendor.ANTHROPIC), !!value);
+						
+						// Update settings
+						this.plugin.settings.anthropicApiKey = value;
+						await this.plugin.saveSettings();
+						
+						// Reinitialize services if this is the current vendor
+						if (this.plugin.settings.vendor === AIVendor.ANTHROPIC) {
+							this.plugin.initializeServices();
+						}
+					});
 					
-					// Update settings
-					this.plugin.settings.anthropicApiKey = value;
-					await this.plugin.saveSettings();
-					
-					// Reinitialize services if this is the current vendor
-					if (this.plugin.settings.vendor === AIVendor.ANTHROPIC) {
-						this.plugin.initializeServices();
-					}
-				}));
+				// Set as password field by default
+				text.inputEl.type = 'password';
+				return text;
+			})
+			.addExtraButton(button => 
+				button
+					.setIcon('eye-off')
+					.setTooltip('Show API key')
+					.onClick(() => {
+						const textInput = anthropicSetting.controlEl.querySelector('input');
+						if (textInput) {
+							if (textInput.type === 'password') {
+								textInput.type = 'text';
+								button.setIcon('eye');
+								button.setTooltip('Hide API key');
+							} else {
+								textInput.type = 'password';
+								button.setIcon('eye-off');
+								button.setTooltip('Show API key');
+							}
+						}
+					}))
+			.addExtraButton(button => 
+				button
+					.setIcon('shield')
+					.setTooltip('Stored securely in Obsidian config')
+					.onClick(() => {}));
 		
 		// Add validation status element for Anthropic
 		const anthropicValidationEl = anthropicKeyContainer.createDiv();

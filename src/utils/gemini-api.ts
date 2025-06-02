@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { GeminiLinkSettings, GeminiModelOption } from '../types.js';
+import { ObsidianLinkSettings, ObsidianLinkModelOption } from '../types.js';
 import { Notice } from 'obsidian';
 
 /**
@@ -19,7 +19,7 @@ export enum ModelAvailabilityStatus {
 export interface ModelAvailabilityInfo {
     status: ModelAvailabilityStatus;
     reason?: string;
-    fallbackModel?: GeminiModelOption;
+    fallbackModel?: ObsidianLinkModelOption;
 }
 
 /**
@@ -122,7 +122,7 @@ export function checkModelAvailability(modelName: string): ModelAvailabilityInfo
  * @param modelName The original model name
  * @returns A suggested fallback model
  */
-function inferFallbackModel(modelName: string): GeminiModelOption {
+function inferFallbackModel(modelName: string): ObsidianLinkModelOption {
     // If it's a pro model, suggest gemini-1.5-pro as fallback
     if (modelName.includes('pro')) {
         return 'gemini-1.5-pro';
@@ -138,9 +138,9 @@ function inferFallbackModel(modelName: string): GeminiModelOption {
 export class GeminiApi {
     private genAI: GoogleGenerativeAI;
     private model: GenerativeModel;
-    private settings: GeminiLinkSettings;
+    private settings: ObsidianLinkSettings;
 
-    constructor(apiKey: string, settings: GeminiLinkSettings) {
+    constructor(apiKey: string, settings: ObsidianLinkSettings) {
         this.settings = settings;
         this.genAI = new GoogleGenerativeAI(apiKey);
         

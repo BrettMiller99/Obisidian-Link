@@ -1,11 +1,11 @@
-import { GeminiLinkSettings, getApiKeyForVendor } from '../types.js';
+import { ObsidianLinkSettings, getApiKeyForVendor } from '../types.js';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 export class SummarizerService {
     private aiProvider: AIProvider;
-    private settings: GeminiLinkSettings;
+    private settings: ObsidianLinkSettings;
 
-    constructor(settings: GeminiLinkSettings) {
+    constructor(settings: ObsidianLinkSettings) {
         this.settings = settings;
         
         // Get the appropriate API key for the selected vendor

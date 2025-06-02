@@ -1,6 +1,6 @@
 {
-  "id": "obsidian-gemini-link",
-  "name": "Gemini Link",
+  "id": "obsidian-link",
+  "name": "Obsidian-Link",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
   "description": "Integrate Obsidian with Google's Gemini AI for web scraping, note summarization, and search",

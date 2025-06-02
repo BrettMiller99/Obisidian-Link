@@ -1,11 +1,11 @@
-import { GeminiLinkSettings, getApiKeyForVendor } from '../types.js';
+import { ObsidianLinkSettings, getApiKeyForVendor } from '../types.js';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 export class WebScraperService {
     private aiProvider: AIProvider;
-    private settings: GeminiLinkSettings;
+    private settings: ObsidianLinkSettings;
 
-    constructor(settings: GeminiLinkSettings) {
+    constructor(settings: ObsidianLinkSettings) {
         this.settings = settings;
         
         // Get the appropriate API key for the selected vendor
@@ -46,7 +46,7 @@ export class WebScraperService {
             
             const html = await response.text();
             
-            // Use Gemini to extract meaningful content and format as Markdown
+            // Use AI to extract meaningful content and format as Markdown
             const prompt = `
                 I have the HTML content from the website ${url}. 
                 Please extract the most meaningful and important content from this HTML and format it as Markdown.

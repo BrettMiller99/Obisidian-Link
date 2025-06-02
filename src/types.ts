@@ -5,7 +5,7 @@ import { AIVendor } from './utils/ai-providers';
  * Legacy type for backward compatibility
  * @deprecated Use ModelOption instead
  */
-export type GeminiModelOption = string;
+export type ObsidianLinkModelOption = string;
 
 /**
  * Model categories for UI organization
@@ -206,7 +206,7 @@ export function getModelById(id: string) {
 /**
  * Plugin settings interface
  */
-export interface GeminiLinkSettings {
+export interface ObsidianLinkSettings {
     // General settings
     vendor: AIVendor;
     model: string;
@@ -220,30 +220,22 @@ export interface GeminiLinkSettings {
 }
 
 /**
- * Utility function to load API key from environment or localStorage
+ * Load API key from environment variables
  * @param vendor The AI vendor to load the API key for
  * @returns The API key if found, empty string otherwise
  */
 export function loadApiKeyFromEnvironment(vendor: AIVendor): string {
     try {
+        // Try to load from environment variables
         const envVarName = getEnvVarNameForVendor(vendor);
-        const localStorageKey = getLocalStorageKeyForVendor(vendor);
-        
-        // First priority: Environment variable (for development)
-        if (process.env[envVarName]) {
+        const envApiKey = process.env[envVarName];
+        if (envApiKey) {
             console.log(`${vendor} API key loaded from environment variable`);
-            return process.env[envVarName] || '';
+            return envApiKey;
         }
         
-        // Second priority: localStorage (for production)
-        const storedKey = localStorage.getItem(localStorageKey);
-        if (storedKey) {
-            console.log(`${vendor} API key loaded from localStorage`);
-            return storedKey;
-        }
-        
-        // No API key found
-        console.log(`No ${vendor} API key found in environment or localStorage`);
+        // No API key found in environment
+        console.log(`No ${vendor} API key found in environment variables`);
         return '';
     } catch (error) {
         console.error(`Error loading ${vendor} API key:`, error);
@@ -265,6 +257,24 @@ function getEnvVarNameForVendor(vendor: AIVendor): string {
             return 'OPENAI_API_KEY';
         case AIVendor.ANTHROPIC:
             return 'ANTHROPIC_API_KEY';
+        default:
+            return '';
+    }
+}
+
+/**
+ * Get the vendor-specific key name for storage or settings
+ * @param vendor The AI vendor
+ * @returns The vendor key name
+ */
+export function getVendorKeyName(vendor: AIVendor): string {
+    switch (vendor) {
+        case AIVendor.GOOGLE:
+            return 'geminiApiKey';
+        case AIVendor.OPENAI:
+            return 'openaiApiKey';
+        case AIVendor.ANTHROPIC:
+            return 'anthropicApiKey';
         default:
             return '';
     }
@@ -318,16 +328,33 @@ export function isValidApiKey(apiKey: string, vendor: AIVendor): boolean {
 }
 
 /**
- * Securely saves the API key to localStorage with optional encryption
+ * Securely saves the API key to Obsidian's secure storage
  * @param apiKey The API key to save
  * @param vendor The AI vendor
+ * @param plugin The plugin instance for accessing Obsidian's data API
  * @returns True if successful, false otherwise
  */
-export function saveApiKey(apiKey: string, vendor: AIVendor): boolean {
+export function saveApiKey(apiKey: string, vendor: AIVendor, plugin: any): boolean {
     try {
-        const localStorageKey = getLocalStorageKeyForVendor(vendor);
-        // In a production plugin, consider encrypting this value
-        localStorage.setItem(localStorageKey, apiKey);
+        // Store the API key in the plugin's secure data storage
+        // This is more secure than localStorage as it's stored in the Obsidian vault's config
+        const vendorKey = getVendorKeyName(vendor);
+        
+        // Update the plugin settings with the new API key
+        switch (vendor) {
+            case AIVendor.GOOGLE:
+                plugin.settings.geminiApiKey = apiKey;
+                break;
+            case AIVendor.OPENAI:
+                plugin.settings.openaiApiKey = apiKey;
+                break;
+            case AIVendor.ANTHROPIC:
+                plugin.settings.anthropicApiKey = apiKey;
+                break;
+        }
+        
+        // Save the updated settings
+        plugin.saveSettings();
         return true;
     } catch (error) {
         console.error(`Error saving ${vendor} API key:`, error);
@@ -341,7 +368,7 @@ export function saveApiKey(apiKey: string, vendor: AIVendor): boolean {
  * @param vendor The AI vendor
  * @returns The API key for the vendor
  */
-export function getApiKeyForVendor(settings: GeminiLinkSettings, vendor: AIVendor): string {
+export function getApiKeyForVendor(settings: ObsidianLinkSettings, vendor: AIVendor): string {
     switch (vendor) {
         case AIVendor.GOOGLE:
             return settings.geminiApiKey;

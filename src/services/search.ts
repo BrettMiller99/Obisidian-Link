@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian';
-import { GeminiLinkSettings, getApiKeyForVendor } from '../types.js';
+import { ObsidianLinkSettings, getApiKeyForVendor } from '../types.js';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 interface SearchResult {
@@ -13,11 +13,11 @@ interface SearchResult {
 
 export class SearchService {
     private aiProvider: AIProvider;
-    private settings: GeminiLinkSettings;
+    private settings: ObsidianLinkSettings;
     private app: App;
     private highlightStorage: Map<string, { terms: string[], relevantSection?: string }> = new Map();
 
-    constructor(settings: GeminiLinkSettings, app: App) {
+    constructor(settings: ObsidianLinkSettings, app: App) {
         this.settings = settings;
         this.app = app;
         
@@ -129,7 +129,7 @@ export class SearchService {
             
             console.log(`Analyzing ${candidateResults.length} documents for semantic relevance`);
             
-            // Use Gemini to analyze and rank results by semantic relevance
+            // Use AI to analyze and rank results by semantic relevance
             return await this.enhanceSearchResults(candidateResults, query);
         } catch (error) {
             console.error('Error performing semantic search:', error);
@@ -371,14 +371,14 @@ export class SearchService {
     }
     
     /**
-     * Uses Gemini AI to perform semantic search and rank results by relevance
+     * Uses AI to perform semantic search and rank results by relevance
      * @param results Array of candidate search results to analyze
      * @param query The search query
      * @returns Array of search results ranked by semantic relevance
      */
     private async enhanceSearchResults(results: SearchResult[], query: string): Promise<SearchResult[]> {
         try {
-            // Prepare the prompt for Gemini
+            // Prepare the prompt for AI model
             const resultsText = results.map((result, index) => {
                 return `Document ${index + 1}:
 Title: ${result.title}
@@ -426,7 +426,7 @@ Excerpt: ${result.excerpt}`;
             // Extract JSON from response
             const jsonMatch = responseText.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
-                console.error('Could not extract JSON from Gemini response');
+                console.error('Could not extract JSON from AI response');
                 return results;
             }
             

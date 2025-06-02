@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-gemini-link",
+  "name": "obsidian-link",
   "version": "1.0.0",
   "description": "An Obsidian plugin that integrates with Google's Gemini AI for web scraping, note summarization, and search",
   "main": "main.js",
