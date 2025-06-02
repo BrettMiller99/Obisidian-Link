@@ -1,0 +1,44 @@
+/* Gemini Link Plugin Styles */
+
+/* Search result highlights */
+.search-result-highlight {
+  background-color: var(--text-highlight-bg);
+  color: var(--text-normal);
+  padding: 0 2px;
+  border-radius: 3px;
+  font-weight: bold;
+}
+
+/* Visited search result links */
+a.visited {
+  color: var(--text-accent);
+  font-style: italic;
+}
+
+/* Highlight styles for opened notes */
+.gemini-search-highlight {
+  background-color: rgba(255, 255, 0, 0.3);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.gemini-search-section-highlight {
+  background-color: rgba(0, 255, 0, 0.2);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* Search modal styles */
+.search-results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.search-result-excerpt {
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
