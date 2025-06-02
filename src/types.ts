@@ -1,8 +1,147 @@
 import { Notice } from 'obsidian';
 
+/**
+ * Available Gemini model options
+ * From: https://ai.google.dev/gemini-api/docs/models
+ */
+export type GeminiModelOption = 
+    // Gemini 1.5 models
+    | 'gemini-1.5-pro'
+    | 'gemini-1.5-flash'
+    | 'gemini-1.5-flash-8b'
+    // Gemini 2.0 models
+    | 'gemini-2.0-flash'
+    | 'gemini-2.0-flash-lite'
+    | 'gemini-2.0-flash-preview-image-generation'
+    | 'gemini-2.0-flash-live-001'
+    // Gemini 2.5 models
+    | 'gemini-2.5-pro-preview-05-06'
+    | 'gemini-2.5-flash-preview-05-20'
+    | 'gemini-2.5-flash-preview-native-audio-dialog'
+    | 'gemini-2.5-flash-exp-native-audio-thinking-dialog'
+    | 'gemini-2.5-flash-preview-tts'
+    | 'gemini-2.5-pro-preview-tts'
+    // Legacy model (for backward compatibility)
+    | 'gemini-pro';
+
+/**
+ * Model categories for UI organization
+ */
+export interface ModelCategory {
+    name: string;
+    models: Array<{
+        id: GeminiModelOption;
+        name: string;
+        description: string;
+    }>;
+}
+
+/**
+ * Gemini model categories for the settings UI
+ */
+export const GEMINI_MODEL_CATEGORIES: ModelCategory[] = [
+    {
+        name: 'Gemini 2.5 Models',
+        models: [
+            {
+                id: 'gemini-2.5-pro-preview-05-06',
+                name: 'Gemini 2.5 Pro Preview',
+                description: 'Most capable model with advanced reasoning and understanding'
+            },
+            {
+                id: 'gemini-2.5-flash-preview-05-20',
+                name: 'Gemini 2.5 Flash Preview',
+                description: 'Fast and efficient model for general text tasks'
+            },
+            {
+                id: 'gemini-2.5-flash-preview-tts',
+                name: 'Gemini 2.5 Flash Preview TTS',
+                description: 'Optimized for text-to-speech applications'
+            },
+            {
+                id: 'gemini-2.5-pro-preview-tts',
+                name: 'Gemini 2.5 Pro Preview TTS',
+                description: 'Advanced model optimized for text-to-speech'
+            }
+        ]
+    },
+    {
+        name: 'Gemini 2.0 Models',
+        models: [
+            {
+                id: 'gemini-2.0-flash',
+                name: 'Gemini 2.0 Flash',
+                description: 'Fast and efficient model for text generation'
+            },
+            {
+                id: 'gemini-2.0-flash-lite',
+                name: 'Gemini 2.0 Flash Lite',
+                description: 'Lightweight version for faster responses'
+            },
+            {
+                id: 'gemini-2.0-flash-preview-image-generation',
+                name: 'Gemini 2.0 Flash Preview Image Generation',
+                description: 'Specialized for image generation tasks'
+            },
+            {
+                id: 'gemini-2.0-flash-live-001',
+                name: 'Gemini 2.0 Flash Live',
+                description: 'Optimized for real-time applications'
+            }
+        ]
+    },
+    {
+        name: 'Gemini 1.5 Models',
+        models: [
+            {
+                id: 'gemini-1.5-pro',
+                name: 'Gemini 1.5 Pro',
+                description: 'Balanced model for most use cases'
+            },
+            {
+                id: 'gemini-1.5-flash',
+                name: 'Gemini 1.5 Flash',
+                description: 'Fast and efficient for general tasks'
+            },
+            {
+                id: 'gemini-1.5-flash-8b',
+                name: 'Gemini 1.5 Flash 8B',
+                description: 'Lightweight model for faster responses'
+            }
+        ]
+    },
+    {
+        name: 'Legacy Models',
+        models: [
+            {
+                id: 'gemini-pro',
+                name: 'Gemini Pro (Legacy)',
+                description: 'Original Gemini Pro model for backward compatibility'
+            }
+        ]
+    }
+];
+
+/**
+ * Get a model by its ID
+ */
+export function getModelById(id: GeminiModelOption) {
+    for (const category of GEMINI_MODEL_CATEGORIES) {
+        for (const model of category.models) {
+            if (model.id === id) {
+                return model;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Plugin settings interface
+ */
 export interface GeminiLinkSettings {
     apiKey: string;
-    model: string;
+    model: GeminiModelOption;
     maxTokens: number;
     temperature: number;
 }

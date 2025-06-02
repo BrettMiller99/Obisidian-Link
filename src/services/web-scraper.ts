@@ -17,8 +17,22 @@ export class WebScraperService {
      */
     async scrapeWebsite(url: string): Promise<string> {
         try {
-            // First, fetch the HTML content from the URL
-            const response = await fetch(url);
+            // Use a CORS proxy to avoid CORS issues
+            // We'll use a popular CORS proxy service
+            const corsProxyUrl = 'https://corsproxy.io/?';
+            const proxyUrl = corsProxyUrl + encodeURIComponent(url);
+            
+            // First, fetch the HTML content from the URL through the proxy
+            const response = await fetch(proxyUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
+            }
+            
             const html = await response.text();
             
             // Use Gemini to extract meaningful content and format as Markdown

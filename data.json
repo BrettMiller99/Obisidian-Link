@@ -1,0 +1,6 @@
+{
+  "apiKey": "***REMOVED***",
+  "model": "gemini-1.5-flash-8b",
+  "maxTokens": 1280,
+  "temperature": 0.7
+}

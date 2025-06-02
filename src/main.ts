@@ -1,13 +1,23 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TAbstractFile, WorkspaceLeaf } from 'obsidian';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { WebScraperService } from './services/web-scraper';
 import { SummarizerService } from './services/summarizer';
 import { SearchService } from './services/search';
-import { GeminiLinkSettings, loadApiKeyFromEnvironment, isValidApiKey, saveApiKey } from './types.js';
+import { HighlighterService } from './services/highlighter';
+import { GeminiApi } from './utils/gemini-api';
+import { 
+	GeminiLinkSettings, 
+	isValidApiKey, 
+	loadApiKeyFromEnvironment, 
+	saveApiKey, 
+	GEMINI_MODEL_CATEGORIES,
+	getModelById,
+	GeminiModelOption
+} from './types';
 
 const DEFAULT_SETTINGS: GeminiLinkSettings = {
 	apiKey: '',
-	model: 'gemini-pro',
+	model: 'gemini-1.5-pro', // Modern default model
 	maxTokens: 1024,
 	temperature: 0.7
 }
@@ -17,12 +27,22 @@ export default class GeminiLinkPlugin extends Plugin {
 	webScraper: WebScraperService | null = null;
 	summarizer: SummarizerService | null = null;
 	searchService: SearchService | null = null;
+	highlighter: HighlighterService | null = null;
 
 	async onload() {
 		await this.loadSettings();
 		
 		// Initialize services if API key is available
 		this.initializeServices();
+		
+		// Register event listener for file open to apply highlighting
+		this.registerEvent(
+			this.app.workspace.on('file-open', (file) => {
+				if (file && this.highlighter) {
+					this.highlighter.highlightFile(file);
+				}
+			})
+		);
 
 		// Add ribbon icon for web scraping
 		const ribbonIconEl = this.addRibbonIcon('globe', 'Scrape Website', async () => {
@@ -65,10 +85,38 @@ export default class GeminiLinkPlugin extends Plugin {
 				}
 				
 				try {
+					// Get the current file title to use in the new note
+					const currentFile = view.file;
+					if (!currentFile) {
+						new Notice('Cannot determine current file');
+						return;
+					}
+					
+					// Get the current file title without extension
+					const currentTitle = currentFile.basename;
+					const newNoteTitle = `${currentTitle} Gemini Summarization`;
+					
 					new Notice('Generating summary...');
 					const summary = await this.summarizer!.summarize(selection);
-					editor.replaceSelection(summary);
-					new Notice('Summary generated successfully');
+					
+					// Create a new note with the summary
+					const folder = currentFile.parent?.path || '';
+					const newNotePath = `${folder ? folder + '/' : ''}${newNoteTitle}.md`;
+					
+					// Create content with a header and the summary
+					const content = `# ${newNoteTitle}\n\n*Generated from [${currentTitle}](${currentFile.path}).*\n\n${summary}`;
+					
+					// Create the new file
+					await this.app.vault.create(newNotePath, content);
+					
+					// Open the new file
+					const newFile = this.app.vault.getAbstractFileByPath(newNotePath);
+					// Check if it's a TFile (document) and not a folder
+					if (newFile && 'basename' in newFile) {
+						await this.app.workspace.getLeaf(false).openFile(newFile as TFile);
+					}
+					
+					new Notice('Summary generated and saved to new note');
 				} catch (error) {
 					console.error('Error generating summary:', error);
 					new Notice('Error generating summary. Check console for details.');
@@ -86,7 +134,7 @@ export default class GeminiLinkPlugin extends Plugin {
 					return;
 				}
 				
-				new SearchModal(this.app, this.searchService!).open();
+				new SearchModal(this.app, this.searchService!, this.highlighter!).open();
 			}
 		});
 
@@ -95,7 +143,13 @@ export default class GeminiLinkPlugin extends Plugin {
 	}
 
 	onunload() {
-		// Clean up resources if needed
+		// Clean up any active highlights
+		if (this.highlighter) {
+			this.highlighter.clearAllHighlights();
+		}
+		
+		// Clean up other resources if needed
+		console.log('Unloading Gemini Link plugin');
 	}
 
 	async loadSettings() {
@@ -135,14 +189,24 @@ export default class GeminiLinkPlugin extends Plugin {
 	initializeServices() {
 		if (this.settings.apiKey) {
 			try {
-				// Initialize services with API key directly
+				// Initialize the Gemini API
+				const geminiApi = new GeminiApi(this.settings.apiKey, this.settings);
+				
+				// Initialize services
 				this.webScraper = new WebScraperService(this.settings.apiKey, this.settings);
 				this.summarizer = new SummarizerService(this.settings.apiKey, this.settings);
 				this.searchService = new SearchService(this.settings.apiKey, this.settings, this.app);
+				
+				// Initialize the highlighter service after the search service
+				this.highlighter = new HighlighterService(this.app, this.searchService);
+				
+				console.log('Gemini Link services initialized');
 			} catch (error) {
 				console.error('Error initializing Gemini services:', error);
 				new Notice('Error initializing Gemini services. Check console for details.');
 			}
+		} else {
+			console.log('No API key found, services not initialized');
 		}
 	}
 }
@@ -150,6 +214,7 @@ export default class GeminiLinkPlugin extends Plugin {
 class WebScraperModal extends Modal {
 	webScraper: WebScraperService;
 	urlInputEl: HTMLInputElement;
+	scrapeWebsite: () => Promise<void>;
 	
 	constructor(app: App, webScraper: WebScraperService) {
 		super(app);
@@ -172,6 +237,17 @@ class WebScraperModal extends Modal {
 		this.urlInputEl.style.width = '100%';
 		this.urlInputEl.style.marginBottom = '1rem';
 		
+		// Focus the input field when the modal opens
+		setTimeout(() => this.urlInputEl.focus(), 10);
+		
+		// Add Enter key support for scraping
+		this.urlInputEl.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				this.scrapeWebsite();
+			}
+		});
+		
 		const buttonContainer = contentEl.createDiv();
 		buttonContainer.style.display = 'flex';
 		buttonContainer.style.justifyContent = 'flex-end';
@@ -182,10 +258,21 @@ class WebScraperModal extends Modal {
 		
 		const scrapeButton = buttonContainer.createEl('button', { text: 'Scrape' });
 		scrapeButton.classList.add('mod-cta');
-		scrapeButton.addEventListener('click', async () => {
+		scrapeButton.addEventListener('click', () => this.scrapeWebsite());
+		
+		// Create a method to handle scraping
+		this.scrapeWebsite = async () => {
 			const url = this.urlInputEl.value.trim();
 			
 			if (!url) {
+				new Notice('Please enter a URL');
+				return;
+			}
+			
+			// Validate URL format
+			try {
+				new URL(url);
+			} catch (e) {
 				new Notice('Please enter a valid URL');
 				return;
 			}
@@ -194,25 +281,45 @@ class WebScraperModal extends Modal {
 				new Notice('Scraping website...');
 				this.close();
 				
+				// Ensure the 'Web scrapes' folder exists
+				const folderPath = 'Web scrapes';
+				let folder = this.app.vault.getAbstractFileByPath(folderPath);
+				
+				// Create the folder if it doesn't exist
+				if (!folder) {
+					try {
+						await this.app.vault.createFolder(folderPath);
+						console.log(`Created '${folderPath}' folder`);
+					} catch (folderError) {
+						console.error(`Error creating folder: ${folderError}`);
+						// Continue anyway, it might fail if the folder already exists
+					}
+				}
+				
 				const content = await this.webScraper.scrapeWebsite(url);
 				
 				// Create a new note with the scraped content
-				const fileName = `Scraped - ${new URL(url).hostname} - ${new Date().toISOString().split('T')[0]}`;
+				const siteName = new URL(url).hostname;
+				const dateStr = new Date().toISOString().split('T')[0];
+				const fileName = `Scraped - ${siteName} - ${dateStr}`;
+				
+				// Save to the Web scrapes folder with fixed title (not duplicated)
+				const filePath = `${folderPath}/${fileName}.md`;
 				const newFile = await this.app.vault.create(
-					`${fileName}.md`,
-					`# ${fileName}\n\nSource: [${url}](${url})\n\n${content}`
+					filePath,
+					`# ${siteName}\n\nSource: [${url}](${url})\n\n${content}`
 				);
 				
 				// Open the new note
 				const leaf = this.app.workspace.getLeaf(false);
 				await leaf.openFile(newFile);
 				
-				new Notice('Website scraped successfully');
+				new Notice(`Website scraped successfully to '${folderPath}' folder`);
 			} catch (error) {
 				console.error('Error scraping website:', error);
 				new Notice('Error scraping website. Check console for details.');
 			}
-		});
+		};
 	}
 
 	onClose() {
@@ -223,12 +330,15 @@ class WebScraperModal extends Modal {
 
 class SearchModal extends Modal {
 	searchService: SearchService;
+	highlighter: HighlighterService | null = null;
 	queryInputEl: HTMLInputElement;
 	resultsContainerEl: HTMLElement;
+	performSearch: () => Promise<void>;
 	
-	constructor(app: App, searchService: SearchService) {
+	constructor(app: App, searchService: SearchService, highlighter?: HighlighterService) {
 		super(app);
 		this.searchService = searchService;
+		this.highlighter = highlighter || null;
 	}
 
 	onOpen() {
@@ -247,6 +357,17 @@ class SearchModal extends Modal {
 		this.queryInputEl.style.width = '100%';
 		this.queryInputEl.style.marginBottom = '1rem';
 		
+		// Add Enter key support for search
+		this.queryInputEl.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				this.performSearch();
+			}
+		});
+		
+		// Focus the input field when the modal opens
+		setTimeout(() => this.queryInputEl.focus(), 10);
+		
 		const buttonContainer = contentEl.createDiv();
 		buttonContainer.style.display = 'flex';
 		buttonContainer.style.justifyContent = 'flex-end';
@@ -257,7 +378,10 @@ class SearchModal extends Modal {
 		
 		const searchButton = buttonContainer.createEl('button', { text: 'Search' });
 		searchButton.classList.add('mod-cta');
-		searchButton.addEventListener('click', async () => {
+		searchButton.addEventListener('click', () => this.performSearch());
+		
+		// Create a method to perform the search
+		this.performSearch = async () => {
 			const query = this.queryInputEl.value.trim();
 			
 			if (!query) {
@@ -283,6 +407,67 @@ class SearchModal extends Modal {
 					return;
 				}
 				
+				// Add a header with result count and actions
+				const resultsHeader = this.resultsContainerEl.createEl('div', { cls: 'search-results-header' });
+				resultsHeader.createEl('h3', { text: `Found ${results.length} relevant notes` });
+				
+				// Add a 'View All' button to open all relevant results in separate tabs
+				const viewAllButton = resultsHeader.createEl('button', { text: 'View All in Tabs' });
+				viewAllButton.addEventListener('click', async () => {
+					// Open each result in a new tab
+					for (const result of results) {
+						const file = this.app.vault.getAbstractFileByPath(result.path);
+						if (file && file instanceof TFile) {
+							// Open the file in a new tab
+							const leaf = this.app.workspace.getLeaf('tab');
+							await leaf.openFile(file);
+						}
+					}
+					// Close the modal after opening all tabs
+					this.close();
+				});
+				
+				// Add CSS for the search results
+				const styleEl = document.createElement('style');
+				styleEl.textContent = `
+					.search-results-header {
+						display: flex;
+						justify-content: space-between;
+						align-items: center;
+						margin-bottom: 1rem;
+					}
+					.search-result-excerpt {
+						margin-top: 0.5rem;
+						font-size: 0.9em;
+						color: var(--text-muted);
+						white-space: pre-wrap;
+					}
+					.search-result-score {
+						margin-top: 0.3rem;
+						font-size: 0.8em;
+						color: var(--text-accent);
+						font-weight: bold;
+					}
+					.search-result-explanation {
+						margin-top: 0.3rem;
+						font-size: 0.85em;
+						color: var(--text-normal);
+						font-style: italic;
+					}
+					.search-result-highlight {
+						background-color: var(--text-highlight-bg);
+						color: var(--text-normal);
+						padding: 0 2px;
+						border-radius: 3px;
+						font-weight: bold;
+					}
+					a.visited {
+						color: var(--text-accent);
+						font-style: italic;
+					}
+				`;
+				document.head.appendChild(styleEl);
+				
 				const resultsList = this.resultsContainerEl.createEl('ul');
 				
 				for (const result of results) {
@@ -295,22 +480,68 @@ class SearchModal extends Modal {
 					link.addEventListener('click', async (e) => {
 						e.preventDefault();
 						const file = this.app.vault.getAbstractFileByPath(result.path);
-						if (file) {
-							this.close();
-							await this.app.workspace.getLeaf().openFile(file);
+						if (file && file instanceof TFile) {
+							// Open the file but keep the modal open
+							await this.app.workspace.getLeaf(false).openFile(file);
+							
+							// Mark this result as visited
+							link.classList.add('visited');
 						}
 					});
 					
-					listItem.createEl('p', { 
-						text: result.excerpt,
+					// Add score and relevance information
+					const scoreEl = listItem.createEl('div', {
+						cls: 'search-result-score',
+						text: `Relevance: ${Math.round(result.score * 100)}%`
+					});
+					
+					// Add explanation of why this result is relevant
+					if (result.explanation) {
+						const explanationEl = listItem.createEl('div', {
+							cls: 'search-result-explanation'
+						});
+						explanationEl.setText(`Why this is relevant: ${result.explanation}`);
+					}
+					
+					// Create excerpt element with highlights
+					const excerptEl = listItem.createEl('div', { 
 						cls: 'search-result-excerpt'
 					});
+					
+					// Process excerpt to render highlights
+					const excerptText = result.excerpt;
+					
+					// Check if the excerpt contains highlight markers
+					if (excerptText.includes('[[highlight]]')) {
+						// Split by highlight markers and render with proper styling
+						const parts = excerptText.split(/\[\[highlight\]\]|\[\[\/highlight\]\]/g);
+						let isHighlighted = false;
+						
+						for (const part of parts) {
+							if (!part) continue; // Skip empty parts
+							
+							if (isHighlighted) {
+								// Create a highlighted span
+								const highlightSpan = excerptEl.createSpan({ text: part });
+								highlightSpan.addClass('search-result-highlight');
+							} else {
+								// Create a normal text node
+								excerptEl.createSpan({ text: part });
+							}
+							
+							// Toggle highlight state for next part
+							isHighlighted = !isHighlighted;
+						}
+					} else {
+						// If no highlights, just set the text content
+						excerptEl.setText(excerptText);
+					}
 				}
 			} catch (error) {
 				console.error('Error performing search:', error);
 				new Notice('Error performing search. Check console for details.');
 			}
-		});
+		};
 	}
 
 	onClose() {
@@ -386,17 +617,70 @@ class GeminiLinkSettingTab extends PluginSettingTab {
 			}
 		}
 
-		new Setting(containerEl)
+		// Create a container for model selection
+		const modelContainer = containerEl.createDiv();
+		modelContainer.addClass('gemini-model-container');
+		
+		// Add model selection heading
+		const modelHeading = modelContainer.createEl('h3', { text: 'Model Selection' });
+		modelHeading.style.marginBottom = '8px';
+		
+		// Add model dropdown with all available models grouped by category
+		const modelSetting = new Setting(modelContainer)
 			.setName('Model')
-			.setDesc('Select the Gemini model to use')
-			.addDropdown(dropdown => dropdown
-				.addOption('gemini-pro', 'Gemini Pro')
-				.addOption('gemini-pro-vision', 'Gemini Pro Vision')
-				.setValue(this.plugin.settings.model)
-				.onChange(async (value) => {
-					this.plugin.settings.model = value;
+			.setDesc('Select the Gemini model to use for AI features')
+			.addDropdown(dropdown => {
+				// Add model options grouped by category
+				for (const category of GEMINI_MODEL_CATEGORIES) {
+					// Add category as a group header (non-selectable)
+					dropdown.addOption(`--${category.name}--`, `--- ${category.name} ---`);
+					
+					// Add models in this category
+					for (const model of category.models) {
+						dropdown.addOption(model.id, model.name);
+					}
+				}
+				
+				// Set the current value
+				dropdown.setValue(this.plugin.settings.model);
+				
+				// Handle changes
+				dropdown.onChange(async (value: string) => {
+					// Skip category headers
+					if (value.startsWith('--')) {
+						// Reset to previous value
+						dropdown.setValue(this.plugin.settings.model);
+						return;
+					}
+					
+					// Update model description
+					const model = getModelById(value as GeminiModelOption);
+					if (model && modelDescEl) {
+						modelDescEl.empty();
+						modelDescEl.textContent = model.description;
+					}
+					
+					// Update settings
+					this.plugin.settings.model = value as GeminiModelOption;
 					await this.plugin.saveSettings();
-				}));
+				});
+				
+				return dropdown;
+			});
+		
+		// Add model description element
+		const modelDescEl = modelContainer.createDiv();
+		modelDescEl.addClass('gemini-model-description');
+		modelDescEl.style.marginTop = '8px';
+		modelDescEl.style.marginBottom = '16px';
+		modelDescEl.style.fontSize = '12px';
+		modelDescEl.style.color = 'var(--text-muted)';
+		
+		// Set initial model description
+		const initialModel = getModelById(this.plugin.settings.model);
+		if (initialModel) {
+			modelDescEl.textContent = initialModel.description;
+		}
 
 		new Setting(containerEl)
 			.setName('Max Tokens')
