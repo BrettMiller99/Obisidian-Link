@@ -4,6 +4,13 @@ A powerful plugin for Obsidian that enhances your note-taking experience with AI
 
 ## Features
 
+### MCP Server Integration
+- **Enhanced Security**: Use MCP (Model Control Plane) servers to keep API keys server-side and improve security
+- **Multi-Provider Support**: Access multiple AI providers through a single unified interface
+- **Dynamic Model Discovery**: Fetch and use available models directly from your MCP server
+- **Simplified Management**: Centralize AI provider management and reduce configuration complexity
+- **Seamless Switching**: Toggle between direct API access and MCP server mode without losing functionality
+
 ### Web Scraping
 - **Intelligent Content Extraction**: Automatically extracts meaningful content from websites and converts it to well-formatted Markdown
 - **CORS-Error Free**: Uses a proxy solution to avoid CORS errors when scraping websites
@@ -53,24 +60,47 @@ Obsidian-Link leverages powerful AI models to enhance your Obsidian experience:
 
 ## Configuration
 
-1. Get an API key from one of the supported AI providers:
-   - [Google AI Studio](https://aistudio.google.com/) for Gemini models
-   - [OpenAI](https://platform.openai.com/) for GPT models
-   - [Anthropic](https://console.anthropic.com/) for Claude models
+### API Keys
 
-2. Set up your chosen API key using one of these methods:
-   - **Plugin Settings (Recommended)**: 
-     - Go to Settings > Community Plugins > Obsidian-Link
-     - Enter your API key in the designated field
-   - **Environment File (For Development)**: 
-     - Copy `.env.example` to `.env` in the project root
-     - Add your API key: `GEMINI_API_KEY=your_api_key_here`
+To use the plugin, you'll need to provide at least one API key from a supported AI provider:
 
-3. Configure optional settings:
-   - Model selection (Gemini Pro or other available models)
-   - Temperature (controls creativity level)
-   - Maximum tokens for responses
-   - Default folder for web scrapes and summaries
+- **Google Gemini**: Get your API key from [Google AI Studio](https://makersuite.google.com/)
+- **OpenAI**: Get your API key from [OpenAI Platform](https://platform.openai.com/)
+- **Anthropic**: Get your API key from [Anthropic Console](https://console.anthropic.com/)
+
+Set up your chosen API key using one of these methods:
+- **Plugin Settings (Recommended)**: 
+  - Go to Settings > Community Plugins > Obsidian-Link
+  - Enter your API key in the designated field
+- **Environment File (For Development)**: 
+  - Copy `.env.example` to `.env` in the project root
+  - Add your API key: `GEMINI_API_KEY=your_api_key_here`
+
+### MCP Server Configuration
+
+For enhanced security and simplified management, you can use an MCP (Model Control Plane) server:
+
+1. Enable MCP Server in the plugin settings
+2. Enter your MCP Server URL (e.g., `https://api.mcp.example.com/v1`)
+3. Enter your MCP API key
+4. Test the connection using the "Test Connection" button
+5. Fetch available models from your MCP server using the "Fetch Models" button
+6. Click on any model in the list to select it for use in the plugin
+
+#### Benefits of Using MCP Server
+
+- **Enhanced Security**: API keys for various providers are stored server-side
+- **Centralized Management**: Configure once, use multiple AI providers
+- **Dynamic Model Discovery**: Easily discover and use new models as they become available
+- **Simplified Updates**: Server-side updates to model handling without plugin changes
+
+### Additional Settings
+
+Configure optional settings:
+- Model selection (Gemini Pro or other available models)
+- Temperature (controls creativity level)
+- Maximum tokens for responses
+- Default folder for web scrapes and summaries
 
 ## Usage
 

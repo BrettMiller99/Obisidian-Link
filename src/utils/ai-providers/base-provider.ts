@@ -48,6 +48,9 @@ export interface AIProviderSettings {
     maxTokens: number;
     temperature: number;
     vendor: AIVendor;
+    // MCP-related settings
+    useMCP?: boolean;
+    mcpServerUrl?: string;
 }
 
 /**

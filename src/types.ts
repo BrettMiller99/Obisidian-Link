@@ -17,6 +17,7 @@ export interface ModelCategory {
         id: string;
         name: string;
         description: string;
+        status?: string; // Model availability status: generally_available, limited_preview, experimental, deprecated, etc.
     }>;
 }
 
@@ -32,22 +33,26 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'gemini-2.5-pro-preview-05-06',
                 name: 'Gemini 2.5 Pro Preview',
-                description: 'Most capable model with advanced reasoning and understanding'
+                description: 'Most capable model with advanced reasoning and understanding',
+                status: 'limited_preview'
             },
             {
                 id: 'gemini-2.5-flash-preview-05-20',
                 name: 'Gemini 2.5 Flash Preview',
-                description: 'Fast and efficient model for general text tasks'
+                description: 'Fast and efficient model for general text tasks',
+                status: 'limited_preview'
             },
             {
                 id: 'gemini-2.5-flash-preview-tts',
                 name: 'Gemini 2.5 Flash Preview TTS',
-                description: 'Optimized for text-to-speech applications'
+                description: 'Optimized for text-to-speech applications',
+                status: 'experimental'
             },
             {
                 id: 'gemini-2.5-pro-preview-tts',
                 name: 'Gemini 2.5 Pro Preview TTS',
-                description: 'Advanced model optimized for text-to-speech'
+                description: 'Advanced model optimized for text-to-speech',
+                status: 'experimental'
             }
         ]
     },
@@ -58,22 +63,26 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'gemini-2.0-flash',
                 name: 'Gemini 2.0 Flash',
-                description: 'Fast and efficient model for text generation'
+                description: 'Fast and efficient model for text generation',
+                status: 'generally_available'
             },
             {
                 id: 'gemini-2.0-flash-lite',
                 name: 'Gemini 2.0 Flash Lite',
-                description: 'Lightweight version for faster responses'
+                description: 'Lightweight version for faster responses',
+                status: 'generally_available'
             },
             {
                 id: 'gemini-2.0-flash-preview-image-generation',
                 name: 'Gemini 2.0 Flash Preview Image Generation',
-                description: 'Specialized for image generation tasks'
+                description: 'Specialized for image generation tasks',
+                status: 'limited_preview'
             },
             {
                 id: 'gemini-2.0-flash-live-001',
                 name: 'Gemini 2.0 Flash Live',
-                description: 'Optimized for real-time applications'
+                description: 'Optimized for real-time applications',
+                status: 'preview'
             }
         ]
     },
@@ -84,17 +93,20 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'gemini-1.5-pro',
                 name: 'Gemini 1.5 Pro',
-                description: 'Balanced model for most use cases'
+                description: 'Balanced model for most use cases',
+                status: 'generally_available'
             },
             {
                 id: 'gemini-1.5-flash',
                 name: 'Gemini 1.5 Flash',
-                description: 'Fast and efficient for general tasks'
+                description: 'Fast and efficient for general tasks',
+                status: 'generally_available'
             },
             {
                 id: 'gemini-1.5-flash-8b',
                 name: 'Gemini 1.5 Flash 8B',
-                description: 'Lightweight model for faster responses'
+                description: 'Lightweight model for faster responses',
+                status: 'generally_available'
             }
         ]
     },
@@ -105,7 +117,8 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'gemini-pro',
                 name: 'Gemini Pro (Legacy)',
-                description: 'Original Gemini Pro model for backward compatibility'
+                description: 'Original Gemini Pro model for backward compatibility',
+                status: 'deprecated'
             }
         ]
     },
@@ -118,22 +131,26 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'gpt-4o',
                 name: 'GPT-4o',
-                description: 'Latest model with improved capabilities and speed'
+                description: 'Latest model with improved capabilities and speed',
+                status: 'generally_available'
             },
             {
                 id: 'gpt-4o-mini',
                 name: 'GPT-4o Mini',
-                description: 'Smaller, faster version of GPT-4o'
+                description: 'Smaller, faster version of GPT-4o',
+                status: 'generally_available'
             },
             {
                 id: 'gpt-4-turbo',
                 name: 'GPT-4 Turbo',
-                description: 'Powerful model with good balance of capabilities and speed'
+                description: 'Powerful model with good balance of capabilities and speed',
+                status: 'generally_available'
             },
             {
                 id: 'gpt-4',
                 name: 'GPT-4',
-                description: 'Original GPT-4 model with strong reasoning capabilities'
+                description: 'Original GPT-4 model with strong reasoning capabilities',
+                status: 'generally_available'
             }
         ]
     },
@@ -144,12 +161,14 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'gpt-3.5-turbo',
                 name: 'GPT-3.5 Turbo',
-                description: 'Fast and cost-effective model for most tasks'
+                description: 'Fast and cost-effective model for most tasks',
+                status: 'generally_available'
             },
             {
                 id: 'gpt-3.5-turbo-instruct',
                 name: 'GPT-3.5 Turbo Instruct',
-                description: 'Optimized for following instructions precisely'
+                description: 'Optimized for following instructions precisely',
+                status: 'generally_available'
             }
         ]
     },
@@ -162,7 +181,8 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'claude-3-5-sonnet-20240620',
                 name: 'Claude 3.5 Sonnet',
-                description: 'Latest Claude model with improved capabilities'
+                description: 'Latest Claude model with improved capabilities',
+                status: 'generally_available'
             }
         ]
     },
@@ -173,17 +193,20 @@ export const MODEL_CATEGORIES: ModelCategory[] = [
             {
                 id: 'claude-3-opus-20240229',
                 name: 'Claude 3 Opus',
-                description: 'Most powerful Claude model with advanced reasoning'
+                description: 'Most powerful Claude model with advanced reasoning',
+                status: 'generally_available'
             },
             {
                 id: 'claude-3-sonnet-20240229',
                 name: 'Claude 3 Sonnet',
-                description: 'Balanced model for most use cases'
+                description: 'Balanced model for most use cases',
+                status: 'generally_available'
             },
             {
                 id: 'claude-3-haiku-20240307',
                 name: 'Claude 3 Haiku',
-                description: 'Fast and efficient model for quick responses'
+                description: 'Fast and efficient model for quick responses',
+                status: 'generally_available'
             }
         ]
     }
@@ -217,6 +240,11 @@ export interface ObsidianLinkSettings {
     geminiApiKey: string;
     openaiApiKey: string;
     anthropicApiKey: string;
+    
+    // MCP server settings
+    useMCP: boolean;
+    mcpServerUrl: string;
+    mcpApiKey: string;
 }
 
 /**
@@ -369,6 +397,12 @@ export function saveApiKey(apiKey: string, vendor: AIVendor, plugin: any): boole
  * @returns The API key for the vendor
  */
 export function getApiKeyForVendor(settings: ObsidianLinkSettings, vendor: AIVendor): string {
+    // If MCP is enabled, use the MCP API key instead of vendor-specific keys
+    if (settings.useMCP && settings.mcpApiKey) {
+        return settings.mcpApiKey;
+    }
+    
+    // Otherwise use the vendor-specific API key
     switch (vendor) {
         case AIVendor.GOOGLE:
             return settings.geminiApiKey;

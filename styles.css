@@ -1,4 +1,59 @@
-/* Gemini Link Plugin Styles */
+/* Obsidian-Gemini-Link Plugin Styles */
+
+/* MCP Server Settings Styles */
+.mcp-server-container {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.mcp-models-container {
+  margin-top: 16px;
+}
+
+.mcp-models-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+}
+
+.mcp-models-list ul {
+  margin-top: 4px;
+  padding-left: 20px;
+}
+
+.mcp-models-list li {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.mcp-models-list li:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.mcp-models-list .vendor-heading {
+  font-weight: bold;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  color: var(--text-accent);
+}
+
+.mcp-models-list .model-selected {
+  background-color: var(--background-modifier-hover);
+  font-weight: bold;
+}
+
+.has-tooltip {
+  border-bottom: 1px dotted var(--text-muted);
+}
+
 
 /* Summary View Styles */
 .obsidian-link-summary-view {

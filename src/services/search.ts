@@ -12,26 +12,49 @@ interface SearchResult {
 }
 
 export class SearchService {
-    private aiProvider: AIProvider;
+    private aiProvider: AIProvider | null = null;
     private settings: ObsidianLinkSettings;
     private app: App;
     private highlightStorage: Map<string, { terms: string[], relevantSection?: string }> = new Map();
+    private initializationPromise: Promise<void>;
 
     constructor(settings: ObsidianLinkSettings, app: App) {
         this.settings = settings;
         this.app = app;
         
-        // Get the appropriate API key for the selected vendor
-        const apiKey = getApiKeyForVendor(settings, settings.vendor);
-        
-        // Create the AI provider using the factory
-        this.aiProvider = AIProviderFactory.createProvider({
-            apiKey,
-            model: settings.model,
-            maxTokens: settings.maxTokens,
-            temperature: settings.temperature,
-            vendor: settings.vendor
-        });
+        // Initialize the provider asynchronously
+        this.initializationPromise = this.initializeProvider();
+    }
+    
+    /**
+     * Initialize the AI provider asynchronously
+     */
+    private async initializeProvider(): Promise<void> {
+        try {
+            // Get the appropriate API key for the selected vendor
+            const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+            
+            // Create the AI provider using the factory with MCP settings
+            this.aiProvider = await AIProviderFactory.createProvider({
+                apiKey,
+                model: this.settings.model,
+                maxTokens: this.settings.maxTokens,
+                temperature: this.settings.temperature,
+                vendor: this.settings.vendor,
+                useMCP: this.settings.useMCP,
+                mcpServerUrl: this.settings.mcpServerUrl
+            });
+            
+            // Log which provider is being used
+            if (this.settings.useMCP) {
+                console.log(`SearchService initialized with MCP provider at ${this.settings.mcpServerUrl}`);
+            } else {
+                console.log(`SearchService initialized with direct ${this.settings.vendor} provider`);
+            }
+        } catch (error) {
+            console.error('Failed to initialize AI provider for search:', error);
+            throw error;
+        }
     }
 
     /**
@@ -68,6 +91,14 @@ export class SearchService {
     async search(query: string): Promise<SearchResult[]> {
         try {
             console.log(`Performing semantic search for: "${query}"`);
+            
+            // Wait for the provider to be initialized
+            await this.initializationPromise;
+            
+            // Ensure the provider is available
+            if (!this.aiProvider) {
+                throw new Error('AI provider not initialized');
+            }
             
             // Get all markdown files in the vault
             const markdownFiles = this.app.vault.getMarkdownFiles();
@@ -378,6 +409,12 @@ export class SearchService {
      */
     private async enhanceSearchResults(results: SearchResult[], query: string): Promise<SearchResult[]> {
         try {
+            // Ensure the provider is available (should be initialized by the search method)
+            if (!this.aiProvider) {
+                console.error('AI provider not initialized in enhanceSearchResults');
+                return results; // Return original results if provider is not available
+            }
+            
             // Prepare the prompt for AI model
             const resultsText = results.map((result, index) => {
                 return `Document ${index + 1}:

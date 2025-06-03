@@ -25,7 +25,12 @@ const DEFAULT_SETTINGS: ObsidianLinkSettings = {
 	// Vendor-specific API keys
 	geminiApiKey: '',
 	openaiApiKey: '',
-	anthropicApiKey: ''
+	anthropicApiKey: '',
+	
+	// MCP server settings
+	useMCP: false,
+	mcpServerUrl: 'https://api.mcp.windsurf.ai/v1',
+	mcpApiKey: ''
 }
 
 export default class ObsidianLinkPlugin extends Plugin {
@@ -80,7 +85,7 @@ export default class ObsidianLinkPlugin extends Plugin {
 		await this.loadSettings();
 		
 		// Initialize services if API key is available
-		this.initializeServices();
+		await this.initializeServices();
 		
 		// Register summary view
 		this.registerView(
@@ -367,26 +372,49 @@ export default class ObsidianLinkPlugin extends Plugin {
 		this.initializeServices();
 	}
 
-	initializeServices() {
-		// Only initialize services if the selected vendor's API key is available
-		const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-		
-		if (apiKey) {
-			try {
-				// Initialize services with the current settings
-				this.summarizer = new SummarizerService(this.settings);
-				this.searchService = new SearchService(this.settings, this.app);
-				this.webScraper = new WebScraperService(this.settings);
-				
-				console.log(`AI services initialized successfully with ${this.settings.vendor} provider`);
-			} catch (error) {
-				console.error(`Error initializing AI services with ${this.settings.vendor} provider:`, error);
-				new Notice(`Error initializing AI services. Check console for details.`);
-			}
-		} else {
-			console.log(`No API key available for ${this.settings.vendor}. AI services not initialized.`);
-		}
-	}
+	async initializeServices() {
+        // Get the appropriate API key for the selected vendor
+        const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+        
+        // Only initialize services if we have an API key
+        if (apiKey) {
+            try {
+                // Create provider settings with MCP configuration
+                const providerSettings = {
+                    apiKey,
+                    model: this.settings.model,
+                    maxTokens: this.settings.maxTokens,
+                    temperature: this.settings.temperature,
+                    vendor: this.settings.vendor,
+                    useMCP: this.settings.useMCP,
+                    mcpServerUrl: this.settings.mcpServerUrl
+                };
+                
+                // Initialize the services - they will handle async provider creation internally
+                this.summarizer = new SummarizerService(this.settings);
+                this.searchService = new SearchService(this.settings, this.app);
+                this.webScraper = new WebScraperService(this.settings);
+                
+                // Log initialization status
+                if (this.settings.useMCP) {
+                    console.log(`Services initialized using MCP server at ${this.settings.mcpServerUrl}`);
+                } else {
+                    console.log(`Services initialized using direct ${this.settings.vendor} API`);
+                }
+            } catch (error) {
+                console.error(`Error initializing AI services:`, error);
+                new Notice(`Error initializing AI services. Check console for details.`);
+                this.summarizer = null;
+                this.searchService = null;
+                this.webScraper = null;
+            }
+        } else {
+            console.warn(`No API key found for ${this.settings.vendor}. Services will not be initialized.`);
+            this.summarizer = null;
+            this.searchService = null;
+            this.webScraper = null;
+        }
+    }
 }
 
 class WebScraperModal extends Modal {
@@ -744,42 +772,45 @@ class ObsidianLinkSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'AI Link Settings' });
 
-		// Create a container for vendor selection
-		const vendorContainer = containerEl.createDiv();
-		vendorContainer.addClass('ai-vendor-container');
-		
-		// Add vendor selection heading
-		const vendorHeading = vendorContainer.createEl('h3', { text: 'AI Vendor' });
-		vendorHeading.style.marginBottom = '8px';
-		
-		// Add vendor dropdown
-		new Setting(vendorContainer)
-			.setName('AI Vendor')
-			.setDesc('Select which AI provider to use')
-			.addDropdown(dropdown => {
-				// Add vendor options
-				dropdown.addOption('google', 'Google Gemini');
-				dropdown.addOption('openai', 'OpenAI');
-				dropdown.addOption('anthropic', 'Anthropic Claude');
-				
-				// Set current value
-				dropdown.setValue(this.plugin.settings.vendor);
-				
-				// Handle changes
-				dropdown.onChange(async (value) => {
-					// Update settings
-					this.plugin.settings.vendor = value as AIVendor;
+		// Only show direct vendor selection when not using MCP
+		if (!this.plugin.settings.useMCP) {
+			// Create a container for vendor selection
+			const vendorContainer = containerEl.createDiv();
+			vendorContainer.addClass('ai-vendor-container');
+			
+			// Add vendor selection heading
+			const vendorHeading = vendorContainer.createEl('h3', { text: 'AI Vendor' });
+			vendorHeading.style.marginBottom = '8px';
+			
+			// Add vendor dropdown
+			new Setting(vendorContainer)
+				.setName('AI Vendor')
+				.setDesc('Select which AI provider to use')
+				.addDropdown(dropdown => {
+					// Add vendor options
+					dropdown.addOption('google', 'Google Gemini');
+					dropdown.addOption('openai', 'OpenAI');
+					dropdown.addOption('anthropic', 'Anthropic Claude');
 					
-					// Update the model dropdown with models for this vendor
-					this.display(); // Refresh the entire settings panel
+					// Set current value
+					dropdown.setValue(this.plugin.settings.vendor);
 					
-					// Save settings
-					await this.plugin.saveSettings();
-					
-					// Reinitialize services with the new vendor
-					this.plugin.initializeServices();
+					// Handle changes
+					dropdown.onChange(async (value) => {
+						// Update settings
+						this.plugin.settings.vendor = value as AIVendor;
+						
+						// Update the model dropdown with models for this vendor
+						this.display(); // Refresh the entire settings panel
+						
+						// Save settings
+						await this.plugin.saveSettings();
+						
+						// Reinitialize services with the new vendor
+						this.plugin.initializeServices();
+					});
 				});
-			});
+		}
 		
 		// Create containers for each vendor's API key
 		const apiKeysContainer = containerEl.createDiv();
@@ -1009,88 +1040,113 @@ class ObsidianLinkSettingTab extends PluginSettingTab {
 		// Initialize validation status for Anthropic
 		updateApiKeyValidationStatus(anthropicKeyContainer, isValidApiKey(this.plugin.settings.anthropicApiKey, AIVendor.ANTHROPIC), !!this.plugin.settings.anthropicApiKey);
 
-		// Create a container for model selection
-		const modelContainer = containerEl.createDiv();
-		modelContainer.addClass('ai-model-container');
-		
-		// Add model selection heading
-		const modelHeading = modelContainer.createEl('h3', { text: 'Model Selection' });
-		modelHeading.style.marginBottom = '8px';
-		
-		// Get model categories for the current vendor
-		const vendorCategories = getModelCategoriesForVendor(this.plugin.settings.vendor);
-		
-		// Add model dropdown with available models for the selected vendor
-		const modelSetting = new Setting(modelContainer)
-			.setName('Model')
-			.setDesc(`Select the ${this.plugin.settings.vendor} model to use for AI features`)
-			.addDropdown(dropdown => {
-				// Add model options grouped by category
-				for (const category of vendorCategories) {
-					// Add category as a group header (non-selectable)
-					dropdown.addOption(`--${category.name}--`, `--- ${category.name} ---`);
-					
-					// Add models in this category
-					for (const model of category.models) {
-						dropdown.addOption(model.id, model.name);
-					}
-				}
-				
-				// Set the current value if it's available for this vendor, otherwise use the first model
-				const currentModel = this.plugin.settings.model;
-				const modelExists = vendorCategories.some(category => 
-					category.models.some(model => model.id === currentModel));
-				
-				if (modelExists) {
-					dropdown.setValue(currentModel);
-				} else if (vendorCategories.length > 0 && vendorCategories[0].models.length > 0) {
-					// Use the first model of the first category as default
-					const defaultModel = vendorCategories[0].models[0].id;
-					dropdown.setValue(defaultModel);
-					// Update settings with the new default model
-					this.plugin.settings.model = defaultModel;
-					this.plugin.saveSettings();
-				}
-				
-				// Handle changes
-				dropdown.onChange(async (value: string) => {
-					// Skip category headers
-					if (value.startsWith('--')) {
-						// Reset to previous value
-						dropdown.setValue(this.plugin.settings.model);
-						return;
-					}
-					
-					// Update model description
-					const model = getModelById(value);
-					if (model && modelDescEl) {
-						modelDescEl.empty();
-						modelDescEl.textContent = model.description;
+		// Create a container for model selection - only when not using MCP
+		if (!this.plugin.settings.useMCP) {
+			const modelContainer = containerEl.createDiv();
+			modelContainer.addClass('ai-model-container');
+			
+			// Add model selection heading
+			const modelHeading = modelContainer.createEl('h3', { text: 'Model Selection' });
+			modelHeading.style.marginBottom = '8px';
+			
+			// Get model categories for the current vendor
+			const vendorCategories = getModelCategoriesForVendor(this.plugin.settings.vendor);
+			
+			// Add model dropdown with available models for the selected vendor
+			const modelSetting = new Setting(modelContainer)
+				.setName('Model')
+				.setDesc(`Select the ${this.plugin.settings.vendor} model to use for AI features`)
+				.addDropdown(dropdown => {
+					// Add model options grouped by category
+					for (const category of vendorCategories) {
+						// Add category as a group header (non-selectable)
+						dropdown.addOption(`--${category.name}--`, `--- ${category.name} ---`);
+						
+						// Add models in this category
+						for (const model of category.models) {
+							// Add status indicator based on model status
+							let statusIndicator = '';
+							
+							if (model.status) {
+								switch(model.status.toLowerCase()) {
+									case 'generally_available':
+									case 'available':
+										statusIndicator = '🟢 ';
+										break;
+									case 'limited_preview':
+									case 'preview':
+										statusIndicator = '🟡 ';
+										break;
+									case 'experimental':
+										statusIndicator = '🟠 ';
+										break;
+									case 'deprecated':
+										statusIndicator = '🔴 ';
+										break;
+									default:
+										break;
+								}
+							}
+							
+							// Add model with status indicator if available
+							dropdown.addOption(model.id, `${statusIndicator}${model.name}`);
+						}
 					}
 					
-					// Update settings
-					this.plugin.settings.model = value;
-					await this.plugin.saveSettings();
+					// Set the current value if it's available for this vendor, otherwise use the first model
+					const currentModel = this.plugin.settings.model;
+					const modelExists = vendorCategories.some(category => 
+						category.models.some(model => model.id === currentModel));
 					
-					// Reinitialize services with the new model
-					this.plugin.initializeServices();
+					if (modelExists) {
+						dropdown.setValue(currentModel);
+					} else if (vendorCategories.length > 0 && vendorCategories[0].models.length > 0) {
+						// Use the first model of the first category as default
+						const defaultModel = vendorCategories[0].models[0].id;
+						dropdown.setValue(defaultModel);
+						// Update settings with the new default model
+						this.plugin.settings.model = defaultModel;
+						this.plugin.saveSettings();
+					}
+					
+					// Handle changes
+					dropdown.onChange(async (value: string) => {
+						// Skip category headers
+						if (value.startsWith('--')) {
+							// Reset to previous value
+							dropdown.setValue(this.plugin.settings.model);
+							return;
+						}
+						
+						// Update model description
+						const model = getModelById(value);
+						if (model && modelDescEl) {
+							modelDescEl.empty();
+							modelDescEl.textContent = model.description;
+						}
+						
+						// Update settings
+						this.plugin.settings.model = value;
+						await this.plugin.saveSettings();
+						
+						// Reinitialize services with the new model
+						this.plugin.initializeServices();
+					});
 				});
 				
-				return dropdown;
-			});
-		
-		// Add model description element
-		const modelDescEl = modelContainer.createDiv();
-		modelDescEl.addClass('ai-model-description');
-		modelDescEl.style.marginTop = '8px';
-		modelDescEl.style.marginBottom = '16px';
-		modelDescEl.style.fontSize = '12px';
-		modelDescEl.style.color = 'var(--text-muted)';
-		
-		// Set initial model description
-		const initialModel = getModelById(this.plugin.settings.model);
-		if (initialModel) {
-			modelDescEl.textContent = initialModel.description;
+			// Add model description element
+			const modelDescEl = modelContainer.createDiv();
+			modelDescEl.addClass('ai-model-description');
+			modelDescEl.style.marginTop = '8px';
+			modelDescEl.style.marginBottom = '16px';
+			modelDescEl.style.fontSize = '12px';
+			modelDescEl.style.color = 'var(--text-muted)';
+			
+			// Set initial model description
+			const initialModel = getModelById(this.plugin.settings.model);
+			if (initialModel) {
+				modelDescEl.textContent = initialModel.description;
+			}
 		}
 
 		new Setting(containerEl)
@@ -1116,5 +1172,277 @@ class ObsidianLinkSettingTab extends PluginSettingTab {
 					this.plugin.settings.temperature = value;
 					await this.plugin.saveSettings();
 				}));
+
+        // Create a container for MCP server settings
+        const mcpContainer = containerEl.createDiv();
+        mcpContainer.addClass('mcp-server-container');
+        
+        // Add MCP server heading
+        const mcpHeading = mcpContainer.createEl('h3', { text: 'MCP Server Configuration' });
+        mcpHeading.style.marginBottom = '8px';
+        mcpHeading.style.marginTop = '24px';
+        
+        // Add MCP server description
+        const mcpDescription = mcpContainer.createEl('div', { cls: 'setting-item-description' });
+        mcpDescription.innerHTML = 'MCP (Model Control Plane) servers provide enhanced security and unified access to multiple AI providers. ' + 
+            'Using an MCP server allows you to keep API keys on the server side and simplifies model management.<br><br>' + 
+            '<strong>Note:</strong> When MCP is enabled, model selection is handled by the MCP server. ' + 
+            'The direct vendor and model selection options will be hidden as they are not applicable.';
+        mcpDescription.style.marginBottom = '16px';
+        
+        // Add toggle for using MCP server
+        new Setting(mcpContainer)
+            .setName('Use MCP Server')
+            .setDesc('Enable to use an MCP server instead of direct API connections')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.useMCP)
+                .onChange(async (value) => {
+                    this.plugin.settings.useMCP = value;
+                    await this.plugin.saveSettings();
+                    
+                    // Refresh the settings display to show/hide MCP-specific settings
+                    this.display();
+                }));
+        
+        // Only show these settings if MCP is enabled
+        if (this.plugin.settings.useMCP) {
+            // Add MCP server URL input
+            new Setting(mcpContainer)
+                .setName('MCP Server URL')
+                .setDesc('Enter the URL of your MCP server')
+                .addText(text => text
+                    .setPlaceholder('https://api.mcp.example.com/v1')
+                    .setValue(this.plugin.settings.mcpServerUrl)
+                    .onChange(async (value) => {
+                        this.plugin.settings.mcpServerUrl = value;
+                        await this.plugin.saveSettings();
+                    }));
+            
+            // Add MCP API key input
+            const mcpKeyContainer = mcpContainer.createDiv();
+            mcpKeyContainer.addClass('api-key-container');
+            mcpKeyContainer.style.marginBottom = '16px';
+            
+            const mcpSetting = new Setting(mcpKeyContainer)
+                .setName('MCP API Key')
+                .setDesc('Enter your MCP server API key')
+                .addText(text => {
+                    text.setPlaceholder('Enter your MCP API key')
+                        .setValue(this.plugin.settings.mcpApiKey)
+                        .onChange(async (value) => {
+                            // Update settings
+                            this.plugin.settings.mcpApiKey = value;
+                            await this.plugin.saveSettings();
+                            
+                            // Reinitialize services if MCP is enabled
+                            if (this.plugin.settings.useMCP) {
+                                this.plugin.initializeServices();
+                            }
+                        });
+                        
+                    // Set as password field by default
+                    text.inputEl.type = 'password';
+                    return text;
+                })
+                .addExtraButton(button => 
+                    button
+                        .setIcon('eye-off')
+                        .setTooltip('Show API key')
+                        .onClick(() => {
+                            const textInput = mcpSetting.controlEl.querySelector('input');
+                            if (textInput) {
+                                if (textInput.type === 'password') {
+                                    textInput.type = 'text';
+                                    button.setIcon('eye');
+                                    button.setTooltip('Hide API key');
+                                } else {
+                                    textInput.type = 'password';
+                                    button.setIcon('eye-off');
+                                    button.setTooltip('Show API key');
+                                }
+                            }
+                        }))
+                .addExtraButton(button => 
+                    button
+                        .setIcon('shield')
+                        .setTooltip('Stored securely in Obsidian config')
+                        .onClick(() => {}));
+            
+            // Add test connection button
+            new Setting(mcpContainer)
+                .setName('Test MCP Connection')
+                .setDesc('Test the connection to your MCP server')
+                .addButton(button => button
+                    .setButtonText('Test Connection')
+                    .onClick(async () => {
+                        try {
+                            // Show testing notice
+                            new Notice('Testing MCP server connection...');
+                            
+                            // Make a request to the MCP server
+                            const response = await fetch(`${this.plugin.settings.mcpServerUrl}/health`, {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': `Bearer ${this.plugin.settings.mcpApiKey}`,
+                                    'Content-Type': 'application/json'
+                                }
+                            });
+                            
+                            if (response.ok) {
+                                new Notice('✅ MCP server connection successful!');
+                            } else {
+                                new Notice(`❌ MCP server connection failed: ${response.statusText}`);
+                            }
+                        } catch (error) {
+                            console.error('Error testing MCP connection:', error);
+                            new Notice(`❌ MCP server connection failed: ${error.message}`);
+                        }
+                    }));
+                    
+            // Add fetch models button
+            const fetchModelsContainer = mcpContainer.createDiv();
+            fetchModelsContainer.addClass('mcp-models-container');
+            fetchModelsContainer.style.marginTop = '16px';
+            
+            const fetchModelsSetting = new Setting(fetchModelsContainer)
+                .setName('Available MCP Models')
+                .setDesc('Fetch available models from your MCP server')
+                .addButton(button => button
+                    .setButtonText('Fetch Models')
+                    .onClick(async () => {
+                        try {
+                            // Show fetching notice
+                            new Notice('Fetching available models from MCP server...');
+                            
+                            // Create a temporary MCP provider to fetch models
+                            const { MCPProvider } = await import('./utils/ai-providers/mcp-provider');
+                            const mcpProvider = new MCPProvider(
+                                this.plugin.settings.mcpApiKey,
+                                {
+                                    apiKey: this.plugin.settings.mcpApiKey,
+                                    model: this.plugin.settings.model,
+                                    maxTokens: this.plugin.settings.maxTokens,
+                                    temperature: this.plugin.settings.temperature,
+                                    vendor: this.plugin.settings.vendor,
+                                    useMCP: true,
+                                    mcpServerUrl: this.plugin.settings.mcpServerUrl
+                                },
+                                this.plugin.settings.mcpServerUrl
+                            );
+                            
+                            // Fetch available models
+                            const models = await mcpProvider.fetchAvailableModels();
+                            
+                            if (!models) {
+                                new Notice('❌ Failed to fetch models from MCP server');
+                                return;
+                            }
+                            
+                            // Clear previous models list
+                            const modelsListEl = fetchModelsContainer.querySelector('.mcp-models-list');
+                            if (modelsListEl) {
+                                modelsListEl.remove();
+                            }
+                            
+                            // Create models list container
+                            const modelsListContainer = fetchModelsContainer.createDiv();
+                            modelsListContainer.addClass('mcp-models-list');
+                            modelsListContainer.style.marginTop = '8px';
+                            modelsListContainer.style.padding = '8px';
+                            modelsListContainer.style.border = '1px solid var(--background-modifier-border)';
+                            modelsListContainer.style.borderRadius = '4px';
+                            modelsListContainer.style.backgroundColor = 'var(--background-secondary)';
+                            
+                            // Add models count
+                            const modelsCountEl = modelsListContainer.createEl('div', { text: `${models.length} models available` });
+                            modelsCountEl.style.fontWeight = 'bold';
+                            modelsCountEl.style.marginBottom = '8px';
+                            
+                            // Group models by vendor
+                            const modelsByVendor: Record<string, any[]> = {};
+                            models.forEach(model => {
+                                if (!modelsByVendor[model.vendor]) {
+                                    modelsByVendor[model.vendor] = [];
+                                }
+                                modelsByVendor[model.vendor].push(model);
+                            });
+                            
+                            // Display models grouped by vendor
+                            Object.entries(modelsByVendor).forEach(([vendor, vendorModels]) => {
+                                // Add vendor heading
+                                const vendorEl = modelsListContainer.createEl('div', { text: vendor.toUpperCase() });
+                                vendorEl.style.fontWeight = 'bold';
+                                vendorEl.style.marginTop = '8px';
+                                vendorEl.style.marginBottom = '4px';
+                                
+                                // Add models for this vendor
+                                const modelsList = modelsListContainer.createEl('ul');
+                                modelsList.style.marginTop = '4px';
+                                modelsList.style.paddingLeft = '20px';
+                                
+                                vendorModels.forEach(model => {
+                                    const modelItem = modelsList.createEl('li');
+                                    const modelText = `${model.name} (${model.id})`;
+                                    
+                                    // Add status indicator
+                                    let statusIndicator = '•';
+                                    let statusColor = 'var(--text-normal)';
+                                    
+                                    if (model.status) {
+                                        switch(model.status.toLowerCase()) {
+                                            case 'generally_available':
+                                            case 'available':
+                                                statusIndicator = '🟢';
+                                                statusColor = 'var(--text-success)';
+                                                break;
+                                            case 'limited_preview':
+                                            case 'preview':
+                                                statusIndicator = '🟡';
+                                                statusColor = 'var(--text-warning)';
+                                                break;
+                                            case 'experimental':
+                                                statusIndicator = '🟠';
+                                                statusColor = 'var(--text-warning)';
+                                                break;
+                                            case 'deprecated':
+                                                statusIndicator = '🔴';
+                                                statusColor = 'var(--text-error)';
+                                                break;
+                                            default:
+                                                statusIndicator = '⚪';
+                                                break;
+                                        }
+                                    }
+                                    
+                                    const modelTextWithStatus = `${statusIndicator} ${modelText}`;
+                                    modelItem.setText(modelTextWithStatus);
+                                    modelItem.style.color = statusColor;
+                                    
+                                    // Add click handler to select this model
+                                    modelItem.style.cursor = 'pointer';
+                                    modelItem.addEventListener('click', async () => {
+                                        this.plugin.settings.model = model.id;
+                                        this.plugin.settings.vendor = model.vendor as AIVendor;
+                                        await this.plugin.saveSettings();
+                                        this.plugin.initializeServices();
+                                        new Notice(`Selected model: ${model.name}`);
+                                        this.display(); // Refresh settings to show selected model
+                                    });
+                                    
+                                    // Add tooltip with description if available
+                                    if (model.description) {
+                                        modelItem.setAttribute('aria-label', model.description);
+                                        modelItem.addClass('has-tooltip');
+                                    }
+                                });
+                            });
+                            
+                            new Notice('✅ Successfully fetched models from MCP server');
+                        } catch (error) {
+                            console.error('Error fetching models:', error);
+                            new Notice(`❌ Failed to fetch models: ${error.message}`);
+                        }
+                    }));
+        }
 	}
 }

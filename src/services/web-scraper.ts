@@ -2,23 +2,46 @@ import { ObsidianLinkSettings, getApiKeyForVendor } from '../types';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 export class WebScraperService {
-    private aiProvider: AIProvider;
+    private aiProvider: AIProvider | null = null;
     private settings: ObsidianLinkSettings;
+    private initializationPromise: Promise<void>;
 
     constructor(settings: ObsidianLinkSettings) {
         this.settings = settings;
         
-        // Get the appropriate API key for the selected vendor
-        const apiKey = getApiKeyForVendor(settings, settings.vendor);
-        
-        // Create the AI provider using the factory
-        this.aiProvider = AIProviderFactory.createProvider({
-            apiKey,
-            model: settings.model,
-            maxTokens: settings.maxTokens,
-            temperature: settings.temperature,
-            vendor: settings.vendor
-        });
+        // Initialize the provider asynchronously
+        this.initializationPromise = this.initializeProvider();
+    }
+    
+    /**
+     * Initialize the AI provider asynchronously
+     */
+    private async initializeProvider(): Promise<void> {
+        try {
+            // Get the appropriate API key for the selected vendor
+            const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+            
+            // Create the AI provider using the factory with MCP settings
+            this.aiProvider = await AIProviderFactory.createProvider({
+                apiKey,
+                model: this.settings.model,
+                maxTokens: this.settings.maxTokens,
+                temperature: this.settings.temperature,
+                vendor: this.settings.vendor,
+                useMCP: this.settings.useMCP,
+                mcpServerUrl: this.settings.mcpServerUrl
+            });
+            
+            // Log which provider is being used
+            if (this.settings.useMCP) {
+                console.log(`WebScraperService initialized with MCP provider at ${this.settings.mcpServerUrl}`);
+            } else {
+                console.log(`WebScraperService initialized with direct ${this.settings.vendor} provider`);
+            }
+        } catch (error) {
+            console.error('Failed to initialize AI provider for web scraper:', error);
+            throw error;
+        }
     }
 
     /**
@@ -28,6 +51,14 @@ export class WebScraperService {
      */
     async scrapeWebsite(url: string): Promise<string> {
         try {
+            // Wait for the provider to be initialized
+            await this.initializationPromise;
+            
+            // Ensure the provider is available
+            if (!this.aiProvider) {
+                throw new Error('AI provider not initialized');
+            }
+            
             // Use a CORS proxy to avoid CORS issues
             // We'll use a popular CORS proxy service
             const corsProxyUrl = 'https://corsproxy.io/?';

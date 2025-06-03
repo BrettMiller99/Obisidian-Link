@@ -2,6 +2,7 @@ import { AIProvider, AIProviderSettings, AIVendor } from './base-provider';
 import { GeminiProvider } from './gemini-provider';
 import { OpenAIProvider } from './openai-provider';
 import { AnthropicProvider } from './anthropic-provider';
+import { MCPProvider } from './mcp-provider';
 
 /**
  * Factory class for creating AI providers
@@ -12,9 +13,37 @@ export class AIProviderFactory {
      * @param settings The AI provider settings
      * @returns An instance of the appropriate AI provider
      */
-    static createProvider(settings: AIProviderSettings): AIProvider {
+    static async createProvider(settings: AIProviderSettings): Promise<AIProvider> {
         const apiKey = settings.apiKey;
+        const useMCP = settings.useMCP;
+        const mcpServerUrl = settings.mcpServerUrl;
         
+        // If MCP is enabled and we have a server URL, use the MCP provider
+        if (useMCP && mcpServerUrl) {
+            const mcpProvider = new MCPProvider(apiKey, settings, mcpServerUrl);
+            
+            // Check if the specified model exists on the MCP server
+            if (settings.model) {
+                const isModelValid = await mcpProvider.validateModel(settings.model);
+                
+                // If the model doesn't exist, try to select the best available model
+                if (!isModelValid) {
+                    console.log(`Model ${settings.model} not found on MCP server, attempting to select best available model`);
+                    const bestModel = await mcpProvider.selectBestAvailableModel(settings.vendor);
+                    
+                    if (bestModel) {
+                        console.log(`Selected best available model: ${bestModel}`);
+                        settings.model = bestModel;
+                    } else {
+                        console.warn(`No available models found for vendor ${settings.vendor} on MCP server`);
+                    }
+                }
+            }
+            
+            return mcpProvider;
+        }
+        
+        // Otherwise use the direct provider based on vendor
         switch (settings.vendor) {
             case AIVendor.GOOGLE:
                 return new GeminiProvider(apiKey, settings);
@@ -82,6 +111,35 @@ export class AIProviderFactory {
                 return 'claude-3-haiku-20240307';
             default:
                 throw new Error(`Unsupported AI vendor: ${vendor}`);
+        }
+    }
+    
+    /**
+     * Get available MCP server models
+     * @param mcpServerUrl The MCP server URL
+     * @param apiKey The API key for the MCP server
+     * @returns A promise that resolves to an array of available models
+     */
+    static async getMCPModels(mcpServerUrl: string, apiKey: string): Promise<string[]> {
+        try {
+            const response = await fetch(`${mcpServerUrl}/models`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                console.error('Failed to fetch MCP models:', response.statusText);
+                return [];
+            }
+            
+            const data = await response.json();
+            return data.models || [];
+        } catch (error) {
+            console.error('Error fetching MCP models:', error);
+            return [];
         }
     }
 }

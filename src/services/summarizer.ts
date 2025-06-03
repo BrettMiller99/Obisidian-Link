@@ -2,24 +2,54 @@ import { ObsidianLinkSettings, getApiKeyForVendor } from '../types';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 import { SummaryLevel } from '../views/summary-view';
 
+// Define interfaces for AI provider responses
+interface TextResponse {
+    text: string;
+}
+
+type AIResponse = string | TextResponse | Record<string, unknown>;
+
 export class SummarizerService {
-    private aiProvider: AIProvider;
+    private aiProvider: AIProvider | null = null;
     private settings: ObsidianLinkSettings;
+    private initializationPromise: Promise<void>;
 
     constructor(settings: ObsidianLinkSettings) {
         this.settings = settings;
         
-        // Get the appropriate API key for the selected vendor
-        const apiKey = getApiKeyForVendor(settings, settings.vendor);
-        
-        // Create the AI provider using the factory
-        this.aiProvider = AIProviderFactory.createProvider({
-            apiKey,
-            model: settings.model,
-            maxTokens: settings.maxTokens,
-            temperature: settings.temperature,
-            vendor: settings.vendor
-        });
+        // Initialize the provider asynchronously
+        this.initializationPromise = this.initializeProvider();
+    }
+    
+    /**
+     * Initialize the AI provider asynchronously
+     */
+    private async initializeProvider(): Promise<void> {
+        try {
+            // Get the appropriate API key for the selected vendor
+            const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+            
+            // Create the AI provider using the factory with MCP settings
+            this.aiProvider = await AIProviderFactory.createProvider({
+                apiKey,
+                model: this.settings.model,
+                maxTokens: this.settings.maxTokens,
+                temperature: this.settings.temperature,
+                vendor: this.settings.vendor,
+                useMCP: this.settings.useMCP,
+                mcpServerUrl: this.settings.mcpServerUrl
+            });
+            
+            // Log which provider is being used
+            if (this.settings.useMCP) {
+                console.log(`SummarizerService initialized with MCP provider at ${this.settings.mcpServerUrl}`);
+            } else {
+                console.log(`SummarizerService initialized with direct ${this.settings.vendor} provider`);
+            }
+        } catch (error) {
+            console.error('Failed to initialize AI provider:', error);
+            throw error;
+        }
     }
 
     /**
@@ -30,6 +60,14 @@ export class SummarizerService {
      */
     async summarize(content: string, level: SummaryLevel = SummaryLevel.STANDARD): Promise<string> {
         try {
+            // Wait for the provider to be initialized
+            await this.initializationPromise;
+            
+            // Ensure the provider is available
+            if (!this.aiProvider) {
+                throw new Error('AI provider not initialized');
+            }
+            
             // Adjust instructions based on the summary level
             let levelInstructions = '';
             let maxLength = '';
@@ -71,14 +109,20 @@ export class SummarizerService {
             `;
             
             // Get the raw summary from the AI provider
-            const response = await this.aiProvider.generateContent(prompt);
+            const response = await this.aiProvider.generateContent(prompt) as AIResponse;
             
             // Extract the text from the response
             let summary: string;
             if (typeof response === 'string') {
                 summary = response;
-            } else if (response && typeof response === 'object' && 'text' in response) {
-                summary = response.text as string;
+            } else if (response && typeof response === 'object') {
+                // Check if the response is a TextResponse
+                const textResponse = response as Partial<TextResponse>;
+                if (textResponse.text && typeof textResponse.text === 'string') {
+                    summary = textResponse.text;
+                } else {
+                    throw new Error('Response object does not contain a valid text property');
+                }
             } else {
                 throw new Error('Invalid response format from AI provider');
             }
