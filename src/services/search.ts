@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian';
-import { ObsidianLinkSettings, getApiKeyForVendor } from '../types.js';
+import { ObsidianLinkSettings, getApiKeyForVendor } from '../types';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
 interface SearchResult {

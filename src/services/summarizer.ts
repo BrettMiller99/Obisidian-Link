@@ -1,5 +1,6 @@
-import { ObsidianLinkSettings, getApiKeyForVendor } from '../types.js';
+import { ObsidianLinkSettings, getApiKeyForVendor } from '../types';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
+import { SummaryLevel } from '../views/summary-view';
 
 export class SummarizerService {
     private aiProvider: AIProvider;
@@ -22,16 +23,41 @@ export class SummarizerService {
     }
 
     /**
-     * Summarizes the provided text content
+     * Summarizes the provided text content with the specified level of detail
      * @param content The text content to summarize
-     * @returns A concise summary of the content
+     * @param level The level of detail for the summary (brief, standard, detailed)
+     * @returns A summary of the content with the requested level of detail
      */
-    async summarize(content: string): Promise<string> {
+    async summarize(content: string, level: SummaryLevel = SummaryLevel.STANDARD): Promise<string> {
         try {
+            // Adjust instructions based on the summary level
+            let levelInstructions = '';
+            let maxLength = '';
+            
+            switch (level) {
+                case SummaryLevel.BRIEF:
+                    levelInstructions = 'Create a very concise summary that captures only the most essential points. Focus on the core message and omit details.';
+                    maxLength = 'Keep the summary very short (about 2-3 paragraphs maximum).';
+                    break;
+                    
+                case SummaryLevel.DETAILED:
+                    levelInstructions = 'Create a comprehensive summary that includes main points as well as important supporting details, examples, and nuances.';
+                    maxLength = 'The summary can be longer to accommodate more details (about 5-7 paragraphs).';
+                    break;
+                    
+                case SummaryLevel.STANDARD:
+                default:
+                    levelInstructions = 'Create a balanced summary that includes the main points and some key supporting details.';
+                    maxLength = 'Keep the summary to a moderate length (about 3-5 paragraphs).';
+                    break;
+            }
+            
             const prompt = `
-                Please provide a concise and informative summary of the following text.
-                Maintain the key points, important details, and overall structure.
-                Format the summary in Markdown.
+                Please provide an informative summary of the following text.
+                ${levelInstructions}
+                ${maxLength}
+                Maintain the overall structure and flow of the original content.
+                Format the summary in Markdown with appropriate paragraph breaks.
                 
                 EXTREMELY IMPORTANT INSTRUCTIONS:
                 - DO NOT include any title, heading, or H1/H2 tags in your summary
@@ -45,7 +71,17 @@ export class SummarizerService {
             `;
             
             // Get the raw summary from the AI provider
-            let summary = await this.aiProvider.generateContent(prompt);
+            const response = await this.aiProvider.generateContent(prompt);
+            
+            // Extract the text from the response
+            let summary: string;
+            if (typeof response === 'string') {
+                summary = response;
+            } else if (response && typeof response === 'object' && 'text' in response) {
+                summary = response.text as string;
+            } else {
+                throw new Error('Invalid response format from AI provider');
+            }
             
             // Post-process to remove any titles that might have been included despite instructions
             summary = this.removeTitles(summary);

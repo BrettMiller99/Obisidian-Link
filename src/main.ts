@@ -1,7 +1,8 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TAbstractFile, WorkspaceLeaf } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TAbstractFile, WorkspaceLeaf, ViewState } from 'obsidian';
 import { WebScraperService } from './services/web-scraper';
 import { SummarizerService } from './services/summarizer';
 import { SearchService } from './services/search';
+import { SummaryView, SUMMARY_VIEW_TYPE, SummaryLevel } from './views/summary-view';
 import { 
 	ObsidianLinkSettings, 
 	isValidApiKey, 
@@ -32,12 +33,60 @@ export default class ObsidianLinkPlugin extends Plugin {
 	summarizer: SummarizerService | null = null;
 	searchService: SearchService | null = null;
 	webScraper: WebScraperService | null = null;
+	
+	// Register the summary view type
+	registerView(
+		type: string,
+		callback: (leaf: WorkspaceLeaf) => SummaryView
+	) {
+		super.registerView(type, callback);
+	}
 
+	// Helper method to ensure the summary view is open
+	ensureSummaryViewOpen(): WorkspaceLeaf | null {
+		const { workspace } = this.app;
+		
+		// Check if view already exists
+		const existingView = workspace.getLeavesOfType(SUMMARY_VIEW_TYPE);
+		
+		if (existingView.length) {
+			// View exists, focus it
+			workspace.revealLeaf(existingView[0]);
+			return existingView[0];
+		}
+		
+		// Create a new leaf in the right sidebar
+		const leaf = workspace.getRightLeaf(false);
+		
+		if (!leaf) {
+			new Notice('Failed to create summary view');
+			return null;
+		}
+		
+		// Set the view type
+		leaf.setViewState({
+			type: SUMMARY_VIEW_TYPE,
+			active: true,
+			state: {}
+		} as ViewState);
+		
+		// Focus the new leaf
+		workspace.revealLeaf(leaf);
+		
+		return leaf;
+	}
+	
 	async onload() {
 		await this.loadSettings();
 		
 		// Initialize services if API key is available
 		this.initializeServices();
+		
+		// Register summary view
+		this.registerView(
+			SUMMARY_VIEW_TYPE,
+			(leaf) => new SummaryView(leaf, this.settings, this.summarizer!)
+		);
 		
 		// We've removed the automatic highlighting on file-open
 		// This was causing yellow bars to appear when opening files in new tabs
@@ -69,10 +118,10 @@ export default class ObsidianLinkPlugin extends Plugin {
 			}
 		});
 
-		// Add command for summarizing selected text
+		// Add command for summarizing selected text (original method - creates a new note)
 		this.addCommand({
 			id: 'summarize-selection',
-			name: 'Summarize Selection',
+			name: 'Summarize Selection to Note',
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
 				if (!apiKey) {
@@ -116,16 +165,64 @@ export default class ObsidianLinkPlugin extends Plugin {
 					
 					// Open the new file
 					const newFile = this.app.vault.getAbstractFileByPath(newNotePath);
-					// Check if it's a TFile (document) and not a folder
-					if (newFile && 'basename' in newFile) {
-						await this.app.workspace.getLeaf(false).openFile(newFile as TFile);
+					if (newFile instanceof TFile) {
+						await this.app.workspace.getLeaf().openFile(newFile);
+					}
+				} catch (error) {
+					new Notice(`Failed to generate summary: ${error.message}`);
+				}
+			}
+		});
+		
+		// Add command for summarizing selected text in a pane
+		this.addCommand({
+			id: 'summarize-selection-in-pane',
+			name: 'Summarize Selection in Pane',
+			editorCallback: async (editor: Editor, view: MarkdownView) => {
+				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+				if (!apiKey) {
+					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
+					return;
+				}
+				
+				const selection = editor.getSelection();
+				if (!selection) {
+					new Notice('No text selected');
+					return;
+				}
+				
+				try {
+					// Ensure the summary view is open
+					const summaryLeaf = this.ensureSummaryViewOpen();
+					if (!summaryLeaf) {
+						new Notice('Failed to open summary view');
+						return;
 					}
 					
-					new Notice('Summary generated and saved to new note');
+					// Get the current file
+					const currentFile = view.file;
+					
+					// Show loading notice
+					new Notice('Generating summary...');
+					
+					// Get the summary view and generate the summary
+					const summaryView = summaryLeaf.view as SummaryView;
+					await summaryView.generateSummary(selection, currentFile);
+					
+					// Focus the summary view
+					this.app.workspace.revealLeaf(summaryLeaf);
 				} catch (error) {
-					console.error('Error generating summary:', error);
-					new Notice('Error generating summary. Check console for details.');
+					new Notice(`Failed to generate summary: ${error.message}`);
 				}
+			}
+		});
+		
+		// Add command to open the summary view
+		this.addCommand({
+			id: 'open-summary-view',
+			name: 'Open Summary View',
+			callback: () => {
+				this.ensureSummaryViewOpen();
 			}
 		});
 
