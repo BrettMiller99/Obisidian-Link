@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import { ObsidianLinkSettings, ObsidianLinkModelOption } from '../types.js';
+import { ObsidianLinkSettings, ObsidianLinkModelOption } from '../types';
 import { Notice } from 'obsidian';
 
 /**
