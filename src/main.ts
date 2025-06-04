@@ -1,10 +1,7 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TAbstractFile, WorkspaceLeaf, ViewState } from 'obsidian';
-import { WebScraperService } from './services/web-scraper';
-import { SummarizerService } from './services/summarizer';
-import { SearchService } from './services/search';
-import { SummaryView, SUMMARY_VIEW_TYPE, SummaryLevel } from './views/summary-view';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, ViewState, addIcon, getAllTags, getLinkpath, normalizePath } from 'obsidian';
 import { 
 	ObsidianLinkSettings, 
+	SummaryLevel,
 	isValidApiKey, 
 	loadApiKeyFromEnvironment, 
 	saveApiKey, 
@@ -13,12 +10,25 @@ import {
 	getModelCategoriesForVendor,
 	getApiKeyForVendor
 } from './types';
-import { AIVendor } from './utils/ai-providers';
+import { AIVendor } from './utils/ai-providers/base-provider';
+import { AIProviderFactory } from './services/ai-provider-factory';
+import { GoogleAIProvider } from './providers/google-ai-provider';
+import { SummarizerService } from './services/summarizer';
+import { SearchService } from './services/search';
+import { WebScraperService } from './services/web-scraper';
+import { ConceptDetectionService } from './services/concept-detection';
+import { MultiModalService } from './services/multi-modal';
+import { CitationService } from './services/citation';
+
+// Import SummaryView and its type
+import { SummaryView, SUMMARY_VIEW_TYPE } from './views/summary-view';
+
+// Type declarations are now handled by the TypeScript configuration
 
 const DEFAULT_SETTINGS: ObsidianLinkSettings = {
 	// General settings
 	vendor: AIVendor.GOOGLE, // Default to Google's Gemini
-	model: 'gemini-1.5-pro', // Modern default model
+	model: 'gemini-2.0-flash', // Modern default model
 	maxTokens: 1024,
 	temperature: 0.7,
 	
@@ -31,8 +41,40 @@ const DEFAULT_SETTINGS: ObsidianLinkSettings = {
 export default class ObsidianLinkPlugin extends Plugin {
 	settings: ObsidianLinkSettings;
 	summarizer: SummarizerService | null = null;
+	
+	// Plugin methods (loadSettings, saveSettings, loadData, saveData) are inherited from the base Plugin class
 	searchService: SearchService | null = null;
 	webScraper: WebScraperService | null = null;
+	conceptDetection: ConceptDetectionService | null = null;
+	multiModal: MultiModalService | null = null;
+	citation: CitationService | null = null;
+	statusBarItemEl: HTMLElement | null = null;
+
+
+
+	formatSummaryForReadability(summary: string): string {
+		// Remove any title-like content from the beginning
+		// This helps avoid duplicate titles since Obsidian already shows the filename as title
+		const titlePattern = /^#\s.*\n+|^.*\n[=-]+\n+/;
+		summary = summary.replace(titlePattern, '');
+		
+		// Split into paragraphs and filter out empty ones
+		const paragraphs = summary.split('\n\n').filter(p => p.trim().length > 0);
+		
+		// Format each paragraph
+		const formattedParagraphs = paragraphs.map(paragraph => {
+			// Remove any title-like content at the start of paragraphs
+			const lines = paragraph.split('\n');
+			const formattedLines = lines.map(line => {
+				// Remove markdown title markers
+				return line.replace(/^#+\s+/, '');
+			});
+			return formattedLines.join('\n');
+		});
+		
+		// Join paragraphs with double line breaks
+		return formattedParagraphs.join('\n\n');
+	}
 	
 	// Register the summary view type
 	registerView(
@@ -44,262 +86,355 @@ export default class ObsidianLinkPlugin extends Plugin {
 
 	// Helper method to ensure the summary view is open
 	ensureSummaryViewOpen(): WorkspaceLeaf | null {
-		const { workspace } = this.app;
-		
-		// Check if view already exists
-		const existingView = workspace.getLeavesOfType(SUMMARY_VIEW_TYPE);
-		
-		if (existingView.length) {
-			// View exists, focus it
-			workspace.revealLeaf(existingView[0]);
-			return existingView[0];
-		}
-		
-		// Create a new leaf in the right sidebar
-		const leaf = workspace.getRightLeaf(false);
-		
-		if (!leaf) {
-			new Notice('Failed to create summary view');
+		if (!this.summarizer) {
+			new Notice('Summarizer service is not available. Please check your API key and settings.');
+			console.error('Cannot open summary view: Summarizer service is not initialized');
 			return null;
 		}
-		
-		// Set the view type
-		leaf.setViewState({
-			type: SUMMARY_VIEW_TYPE,
-			active: true,
-			state: {}
-		} as ViewState);
-		
-		// Focus the new leaf
-		workspace.revealLeaf(leaf);
-		
-		return leaf;
+
+		const { workspace } = this.app;
+		try {
+			// Check if view already exists
+			const existingView = workspace.getLeavesOfType(SUMMARY_VIEW_TYPE);
+			
+			if (existingView.length) {
+				// View exists, focus it
+				workspace.revealLeaf(existingView[0]);
+				return existingView[0];
+			}
+			
+			// Create a new leaf in the right sidebar
+			const leaf = workspace.getRightLeaf(false);
+			
+			if (!leaf) {
+				new Notice('Failed to create summary view');
+				return null;
+			}
+			
+			// Set the view type
+			leaf.setViewState({
+				type: SUMMARY_VIEW_TYPE,
+				active: true,
+				state: {}
+			} as ViewState);
+			
+			// Focus the new leaf
+			workspace.revealLeaf(leaf);
+			return leaf;
+		} catch (error) {
+			console.error('Error in ensureSummaryViewOpen:', error);
+			new Notice('Failed to open summary view. Please check the console for details.');
+			return null;
+		}
 	}
 	
 	async onload() {
-		await this.loadSettings();
-		
-		// Initialize services if API key is available
-		this.initializeServices();
-		
-		// Register summary view
-		this.registerView(
-			SUMMARY_VIEW_TYPE,
-			(leaf) => new SummaryView(leaf, this.settings, this.summarizer!)
-		);
-		
-		// We've removed the automatic highlighting on file-open
-		// This was causing yellow bars to appear when opening files in new tabs
-		// Highlighting is now only applied when explicitly requested from search results
+		try {
+			// Load settings first
+			await this.loadSettings();
 
-		// Add ribbon icon for web scraping
-		const ribbonIconEl = this.addRibbonIcon('globe', 'Scrape Website', async () => {
-			const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-			if (!apiKey) {
-				new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
-				return;
+			// Initialize services
+			const initialized = await this.initializeServices();
+			if (!initialized) {
+				console.warn('AI services failed to initialize. Some features may not be available.');
+				new Notice('Failed to initialize AI services. Please check your API key and settings.');
+			}
+
+			// Register summary view only if summarizer is available
+			if (this.summarizer) {
+				this.registerView(
+					SUMMARY_VIEW_TYPE,
+					(leaf) => new SummaryView(leaf, this.settings, this.summarizer!)
+				);
+
+				// Register context menu item for files
+				this.registerEvent(
+					this.app.workspace.on('file-menu', (menu, file: TFile) => {
+						if (file.extension === 'md') {
+							menu.addItem((item) => {
+								item
+									.setTitle('Summarize Note With AI')
+									.setIcon('file-text')
+									.onClick(async () => {
+										try {
+											const content = await this.app.vault.read(file);
+											
+											// Ensure summary view is open
+											const leaf = this.ensureSummaryViewOpen();
+											if (!leaf) return;
+
+											// Get the summary view instance
+											const viewInstance = leaf.view;
+											if (viewInstance instanceof SummaryView) {
+												// Use the public API to set content and generate summary
+												viewInstance.setContent(content);
+												viewInstance.setFile(file);
+												await viewInstance.generateSummary(content, file);
+											}
+
+											// Activate the summary view
+											this.app.workspace.setActiveLeaf(leaf, { focus: true });
+										} catch (error) {
+											console.error('Error generating summary:', error);
+											new Notice('Failed to generate summary. Please try again.');
+										}
+									});
+							});
+						}
+					})
+				);
+
+				// Add ribbon icon for summary view
+				this.addRibbonIcon('list-plus', 'Open Summary View', () => {
+					this.ensureSummaryViewOpen();
+				});
+			} else {
+				console.warn('Summarizer service not available. Summary view will not be registered.');
 			}
 			
-			new WebScraperModal(this.app, this.webScraper!).open();
-		});
+			// We've removed the automatic highlighting on file-open
+			// This was causing yellow bars to appear when opening files in new tabs
+			// Highlighting is now only applied when explicitly requested from search results
 
-		// Add command for web scraping
-		this.addCommand({
-			id: 'scrape-website',
-			name: 'Scrape Website',
-			callback: () => {
-				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-				if (!apiKey) {
-					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
-					return;
-				}
-				
-				new WebScraperModal(this.app, this.webScraper!).open();
-			}
-		});
+			// Add command for summarizing current document
+			this.addCommand({
+				id: 'summarize-current-document',
+				name: 'Summarize Current Document',
+				editorCallback: async (editor: Editor, view: MarkdownView) => {
+					if (!this.summarizer) {
+						new Notice('Summarizer service not initialized. Please check your API key and settings.');
+						return;
+					}
 
-		// Add command for summarizing selected text (original method - creates a new note)
-		this.addCommand({
-			id: 'summarize-selection',
-			name: 'Summarize Selection to Note',
-			editorCallback: async (editor: Editor, view: MarkdownView) => {
-				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-				if (!apiKey) {
-					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
-					return;
+					const file = view.file;
+					if (!file) {
+						new Notice('No file associated with the current view');
+						return;
+					}
+
+					try {
+						const content = await this.app.vault.read(file);
+						
+						// Ensure summary view is open
+						const leaf = this.ensureSummaryViewOpen();
+						if (!leaf) return;
+
+						// Get the summary view instance and trigger summary generation
+						const viewInstance = leaf.view;
+						if (viewInstance instanceof SummaryView) {
+							// Use the public API to set content and generate summary
+							await viewInstance.generateSummary(content, file);
+						}
+
+						// Activate the summary view
+						this.app.workspace.setActiveLeaf(leaf, { focus: true });
+					} catch (error) {
+						console.error('Error generating summary:', error);
+						new Notice('Failed to generate summary. Please try again.');
+					}
 				}
-				
-				const selection = editor.getSelection();
-				if (!selection) {
-					new Notice('No text selected');
-					return;
+			});
+
+			// Add commands
+			this.addCommand({
+				id: 'scrape-website',
+				name: 'Scrape Website',
+				callback: async () => {
+					if (!this.webScraper) {
+						new Notice('Web scraper service not initialized. Please check your API key.');
+						return;
+					}
+					try {
+						const { WebScraperModal } = await import('./views/web-scraper-modal');
+						new WebScraperModal(this.app, this.webScraper).open();
+					} catch (error) {
+						console.error('Failed to load web scraper modal:', error);
+						new Notice('Web scraper feature not available');
+					}
 				}
-				
-				try {
-					// Get the current file title to use in the new note
+			});
+
+			this.addCommand({
+				id: 'semantic-search',
+				name: 'Semantic Search',
+				editorCallback: async (editor: Editor, view: MarkdownView) => {
+					if (!this.searchService) {
+						new Notice('Search service not initialized. Please check your API key.');
+						return;
+					}
+					
+					const selection = editor.getSelection();
+					if (!selection) {
+						new Notice('No text selected');
+						return;
+					}
+					
+					try {
+						new Notice('Searching...');
+						const results = await this.searchService.search(selection);
+						
+						if (results.length === 0) {
+							new Notice('No relevant results found');
+							return;
+						}
+						
+						try {
+							const { SearchResultsModal } = await import('./views/search-results-modal');
+							new SearchResultsModal(this.app, results, this.searchService).open();
+						} catch (error) {
+							console.error('Failed to load search results modal:', error);
+							new Notice('Search results feature not available');
+						}
+					} catch (error: unknown) {
+						console.error('Error performing search:', error);
+						new Notice('Failed to perform search. Please try again.');
+					}
+				}
+			});
+
+			this.addCommand({
+				id: 'detect-concepts',
+				name: 'Detect Concepts in Current Note',
+				editorCallback: async (editor: Editor, view: MarkdownView) => {
+					if (!this.conceptDetection) {
+						new Notice('Concept detection service not initialized. Please check your API key.');
+						return;
+					}
+
 					const currentFile = view.file;
 					if (!currentFile) {
 						new Notice('Cannot determine current file');
 						return;
 					}
 					
-					// Get the current file title without extension
-					const currentTitle = currentFile.basename;
-					const newNoteTitle = `${currentTitle} Summary`;
-					
-					new Notice('Generating summary...');
-					const summary = await this.summarizer!.summarize(selection);
-					
-					// Create a new note with the summary
-					const folder = currentFile.parent?.path || '';
-					const newNotePath = `${folder ? folder + '/' : ''}${newNoteTitle}.md`;
-					
-					// Create content with source reference and the summary
-					// We're NOT adding a title as H1 since Obsidian already displays the filename as the title
-					// Format the summary with proper markdown spacing for better readability
-					const vendorName = this.settings.vendor.charAt(0).toUpperCase() + this.settings.vendor.slice(1);
-					const content = `*Generated from [${currentTitle}](${currentFile.path}) using Obsidian-Link (${vendorName}).*\n\n${this.formatSummaryForReadability(summary.trim())}`;
-					
-					// Create the new file
-					await this.app.vault.create(newNotePath, content);
-					
-					// Open the new file
-					const newFile = this.app.vault.getAbstractFileByPath(newNotePath);
-					if (newFile instanceof TFile) {
-						await this.app.workspace.getLeaf().openFile(newFile);
+					try {
+						new Notice('Detecting concepts...');
+						const concepts = await this.conceptDetection.extractConcepts(currentFile);
+						
+						if (concepts.length === 0) {
+							new Notice('No significant concepts detected');
+							return;
+						}
+						
+						try {
+							const { ConceptDisplayModal } = await import('./modals/concept-display-modal');
+							new ConceptDisplayModal(this.app, concepts, currentFile, this.conceptDetection).open();
+						} catch (error) {
+							console.error('Failed to load concept display modal:', error);
+							new Notice('Concept display feature not available');
+						}
+					} catch (error: unknown) {
+						console.error('Error detecting concepts:', error);
+						new Notice('Failed to detect concepts. Please try again.');
 					}
-				} catch (error) {
-					new Notice(`Failed to generate summary: ${error.message}`);
 				}
-			}
-		});
-		
-		// Add command for summarizing selected text in a pane
-		this.addCommand({
-			id: 'summarize-selection-in-pane',
-			name: 'Summarize Selection in Pane',
-			editorCallback: async (editor: Editor, view: MarkdownView) => {
-				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-				if (!apiKey) {
-					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
-					return;
+			});
+			
+			this.addCommand({
+				id: 'analyze-image',
+				name: 'Analyze Selected Image',
+				callback: async () => {
+					if (!this.multiModal) {
+						new Notice('Multi-modal service not initialized. Please check your API key.');
+						return;
+					}
+					try {
+						const { ImageAnalysisModal } = await import('./views/image-analysis-modal');
+						new ImageAnalysisModal(this.app, this.multiModal).open();
+					} catch (error) {
+						console.error('Failed to load image analysis modal:', error);
+						new Notice('Image analysis feature not available');
+					}
 				}
-				
-				const selection = editor.getSelection();
-				if (!selection) {
-					new Notice('No text selected');
-					return;
+			});
+			
+			this.addCommand({
+				id: 'generate-citation',
+				name: 'Generate Citation from URL/DOI',
+				callback: async () => {
+					if (!this.citation) {
+						new Notice('Citation service not initialized. Please check your API key.');
+						return;
+					}
+					try {
+						const { CitationModal } = await import('./modals/citation-modal');
+						new CitationModal(this.app, this.citation).open();
+					} catch (error) {
+						console.error('Failed to load citation modal:', error);
+						new Notice('Citation generation feature not available');
+					}
 				}
-				
-				try {
-					// Ensure the summary view is open
-					const summaryLeaf = this.ensureSummaryViewOpen();
-					if (!summaryLeaf) {
-						new Notice('Failed to open summary view');
+			});
+			
+			this.addCommand({
+				id: 'scan-for-citations',
+				name: 'Scan Selected Text for Citations',
+				editorCallback: async (editor: Editor, view: MarkdownView) => {
+					if (!this.citation) {
+						new Notice('Citation service not initialized. Please check your API key.');
+						return;
+					}
+
+					const selection = editor.getSelection();
+					if (!selection) {
+						new Notice('No text selected');
 						return;
 					}
 					
-					// Get the current file
-					const currentFile = view.file;
-					
-					// Show loading notice
-					new Notice('Generating summary...');
-					
-					// Get the summary view and generate the summary
-					const summaryView = summaryLeaf.view as SummaryView;
-					await summaryView.generateSummary(selection, currentFile);
-					
-					// Focus the summary view
-					this.app.workspace.revealLeaf(summaryLeaf);
-				} catch (error) {
-					new Notice(`Failed to generate summary: ${error.message}`);
-				}
-			}
-		});
-		
-		// Add command to open the summary view
-		this.addCommand({
-			id: 'open-summary-view',
-			name: 'Open Summary View',
-			callback: () => {
-				this.ensureSummaryViewOpen();
-			}
-		});
+					try {
+						new Notice('Scanning for citations...');
+						const citations = await this.citation.scanTextForCitations(selection);
+						
+						// Convert Citation[] to CitationCandidate[]
+						const citationCandidates = citations.map((citation, index) => ({
+							id: `citation-${index}-${Date.now()}`,
+							title: citation.metadata.title || 'Untitled',
+							authors: citation.metadata.authors || [],
+							year: citation.metadata.date ? parseInt(citation.metadata.date.substring(0, 4)) : undefined,
+							source: citation.metadata.journal || citation.metadata.publisher
+						}));
 
-		// Add command for semantic search
-		this.addCommand({
-			id: 'semantic-search',
-			name: 'Semantic Search',
-			callback: () => {
-				const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-				if (!apiKey) {
-					new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings`);
-					return;
+						if (citationCandidates.length === 0) {
+							new Notice('No citations found in selected text');
+							return;
+						}
+						
+						try {
+							const { CitationCandidatesModal } = await import('./modals/citation-candidates-modal');
+							new CitationCandidatesModal(this.app, citationCandidates, this.citation).open();
+						} catch (error) {
+							console.error('Failed to load citation candidates modal:', error);
+							new Notice('Citation scanning feature not available');
+						}
+					} catch (error: unknown) {
+						console.error('Error scanning for citations:', error);
+						new Notice('Failed to scan for citations. Please try again.');
+					}
 				}
-				
-				new SearchModal(this.app, this.searchService!).open();
-			}
-		});
-
-		// Add settings tab
-		this.addSettingTab(new ObsidianLinkSettingTab(this.app, this));
+			});
+			
+			// Add settings tab
+			this.addSettingTab(new ObsidianLinkSettingTab(this.app, this));
+			
+			// Add status bar item
+			this.statusBarItemEl = this.addStatusBarItem();
+			
+			// Set initial status
+			const vendor = this.settings.vendor;
+			const model = this.settings.model;
+			this.statusBarItemEl.setText(`${vendor} - ${model}`);
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			console.error('Error initializing Obsidian Link plugin:', error);
+			new Notice(`Failed to initialize Obsidian Link: ${errorMessage}`);
+		}
 	}
 
 	onunload() {
 		console.log('Unloading Gemini Link plugin');
 	}
 
-	/**
-	 * Formats a summary for better readability with proper markdown spacing
-	 * @param summary The raw summary text
-	 * @returns Formatted summary with improved readability
-	 */
-	private formatSummaryForReadability(summary: string): string {
-		// Split the summary into paragraphs
-		const paragraphs = summary.split(/\n\s*\n/);
-		
-		// Process each paragraph
-		const formattedParagraphs = paragraphs.map(paragraph => {
-			// Trim whitespace
-			paragraph = paragraph.trim();
-			
-			// If it's already a list item or a heading, leave it as is
-			if (paragraph.startsWith('-') || paragraph.startsWith('*') || paragraph.startsWith('#') || 
-				paragraph.startsWith('>') || paragraph.startsWith('1.') || paragraph.startsWith('```')) {
-				return paragraph;
-			}
-			
-			// If it's a very long paragraph (over 100 chars), add soft line breaks for readability
-			if (paragraph.length > 100 && !paragraph.includes('\n')) {
-				// Split into sentences
-				const sentences = paragraph.split(/(?<=\.)\s+/);
-				
-				// Group sentences to create reasonable line lengths
-				let formattedParagraph = '';
-				let currentLine = '';
-				
-				for (const sentence of sentences) {
-					if (currentLine.length + sentence.length > 80) {
-						formattedParagraph += currentLine + '\n';
-						currentLine = sentence;
-					} else {
-						currentLine += (currentLine ? ' ' : '') + sentence;
-					}
-				}
-				
-				if (currentLine) {
-					formattedParagraph += currentLine;
-				}
-				
-				return formattedParagraph;
-			}
-			
-			return paragraph;
-		});
-		
-		// Join paragraphs with double line breaks for better spacing
-		return formattedParagraphs.join('\n\n');
-	}
+
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -367,366 +502,58 @@ export default class ObsidianLinkPlugin extends Plugin {
 		this.initializeServices();
 	}
 
-	initializeServices() {
-		// Only initialize services if the selected vendor's API key is available
-		const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
-		
-		if (apiKey) {
-			try {
-				// Initialize services with the current settings
-				this.summarizer = new SummarizerService(this.settings);
-				this.searchService = new SearchService(this.settings, this.app);
-				this.webScraper = new WebScraperService(this.settings);
-				
-				console.log(`AI services initialized successfully with ${this.settings.vendor} provider`);
-			} catch (error) {
-				console.error(`Error initializing AI services with ${this.settings.vendor} provider:`, error);
-				new Notice(`Error initializing AI services. Check console for details.`);
+	async initializeServices() {
+		try {
+			// Get the appropriate API key for the selected vendor
+			const apiKey = getApiKeyForVendor(this.settings, this.settings.vendor);
+			
+			if (!apiKey) {
+				console.log(`No API key available for ${this.settings.vendor}. AI services not initialized.`);
+				new Notice(`Please set your ${this.settings.vendor} API key in the plugin settings.`);
+				return false;
 			}
-		} else {
-			console.log(`No API key available for ${this.settings.vendor}. AI services not initialized.`);
+
+			// Get AI provider from factory with rate limiting
+			const aiProvider = AIProviderFactory.getInstance().getProvider(
+				this.settings.vendor.toLowerCase(),
+				apiKey,
+				this.settings.model
+			);
+
+			// Initialize services with rate-limited AI provider
+			this.summarizer = new SummarizerService(aiProvider);
+			this.multiModal = new MultiModalService(this.app, this.settings);
+			this.citation = new CitationService(this.settings);
+			this.searchService = new SearchService(this.settings, this.app);
+			this.webScraper = new WebScraperService(this.settings);
+			this.conceptDetection = new ConceptDetectionService(this.app, this.settings);
+			
+			console.log(`AI services initialized successfully with ${this.settings.vendor} provider`);
+			return true;
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			console.error(`Error initializing AI services with ${this.settings.vendor} provider:`, error);
+			new Notice(`Error initializing AI services: ${errorMessage}`);
+			
+			// Clear services on error
+			this.summarizer = null;
+			this.multiModal = null;
+			this.citation = null;
+			this.searchService = null;
+			this.webScraper = null;
+			this.conceptDetection = null;
+			
+			return false;
 		}
 	}
 }
 
-class WebScraperModal extends Modal {
-	webScraper: WebScraperService;
-	urlInputEl: HTMLInputElement;
-	scrapeWebsite: () => Promise<void>;
-	
-	constructor(app: App, webScraper: WebScraperService) {
-		super(app);
-		this.webScraper = webScraper;
-	}
-
-	onOpen() {
-		const { contentEl } = this;
-		
-		contentEl.createEl('h2', { text: 'Scrape Website' });
-		
-		contentEl.createEl('p', { 
-			text: 'Enter the URL of the website you want to scrape. The content will be extracted and formatted as Markdown.'
-		});
-		
-		this.urlInputEl = contentEl.createEl('input', {
-			type: 'text',
-			placeholder: 'https://example.com'
-		});
-		this.urlInputEl.style.width = '100%';
-		this.urlInputEl.style.marginBottom = '1rem';
-		
-		// Focus the input field when the modal opens
-		setTimeout(() => this.urlInputEl.focus(), 10);
-		
-		// Add Enter key support for scraping
-		this.urlInputEl.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				this.scrapeWebsite();
-			}
-		});
-		
-		const buttonContainer = contentEl.createDiv();
-		buttonContainer.style.display = 'flex';
-		buttonContainer.style.justifyContent = 'flex-end';
-		buttonContainer.style.gap = '0.5rem';
-		
-		const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
-		cancelButton.addEventListener('click', () => this.close());
-		
-		const scrapeButton = buttonContainer.createEl('button', { text: 'Scrape' });
-		scrapeButton.classList.add('mod-cta');
-		scrapeButton.addEventListener('click', () => this.scrapeWebsite());
-		
-		// Create a method to handle scraping
-		this.scrapeWebsite = async () => {
-			const url = this.urlInputEl.value.trim();
-			
-			if (!url) {
-				new Notice('Please enter a URL');
-				return;
-			}
-			
-			// Validate URL format
-			try {
-				new URL(url);
-			} catch (e) {
-				new Notice('Please enter a valid URL');
-				return;
-			}
-			
-			try {
-				new Notice('Scraping website...');
-				this.close();
-				
-				// Ensure the 'Web scrapes' folder exists
-				const folderPath = 'Web scrapes';
-				let folder = this.app.vault.getAbstractFileByPath(folderPath);
-				
-				// Create the folder if it doesn't exist
-				if (!folder) {
-					try {
-						await this.app.vault.createFolder(folderPath);
-						console.log(`Created '${folderPath}' folder`);
-					} catch (folderError) {
-						console.error(`Error creating folder: ${folderError}`);
-						// Continue anyway, it might fail if the folder already exists
-					}
-				}
-				
-				const content = await this.webScraper.scrapeWebsite(url);
-				
-				// Create a new note with the scraped content
-				const siteName = new URL(url).hostname;
-				const dateStr = new Date().toISOString().split('T')[0];
-				const fileName = `Scraped - ${siteName} - ${dateStr}`;
-				
-				// Save to the Web scrapes folder with fixed title (not duplicated)
-				const filePath = `${folderPath}/${fileName}.md`;
-				const newFile = await this.app.vault.create(
-					filePath,
-					`# ${siteName}\n\nSource: [${url}](${url})\n\n${content}`
-				);
-				
-				// Open the new note
-				const leaf = this.app.workspace.getLeaf(false);
-				await leaf.openFile(newFile);
-				
-				new Notice(`Website scraped successfully to '${folderPath}' folder`);
-			} catch (error) {
-				console.error('Error scraping website:', error);
-				new Notice('Error scraping website. Check console for details.');
-			}
-		};
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
-}
-
-class SearchModal extends Modal {
-	searchService: SearchService;
-	queryInputEl: HTMLInputElement;
-	resultsContainerEl: HTMLElement | null = null;
-	performSearch: () => Promise<void>;
-	
-	constructor(app: App, searchService: SearchService) {
-		super(app);
-		this.searchService = searchService;
-	}
-
-	onOpen() {
-		const { contentEl } = this;
-		
-		contentEl.createEl('h2', { text: 'Smart Search' });
-		
-		contentEl.createEl('p', { 
-			text: 'Enter your search query. Gemini AI will help find the most relevant notes in your vault.'
-		});
-		
-		this.queryInputEl = contentEl.createEl('input', {
-			type: 'text',
-			placeholder: 'Search query...'
-		});
-		this.queryInputEl.style.width = '100%';
-		this.queryInputEl.style.marginBottom = '1rem';
-		
-		// Add Enter key support for search
-		this.queryInputEl.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				this.performSearch();
-			}
-		});
-		
-		// Focus the input field when the modal opens
-		setTimeout(() => this.queryInputEl.focus(), 10);
-		
-		const buttonContainer = contentEl.createDiv();
-		buttonContainer.style.display = 'flex';
-		buttonContainer.style.justifyContent = 'flex-end';
-		buttonContainer.style.gap = '0.5rem';
-		
-		const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
-		cancelButton.addEventListener('click', () => this.close());
-		
-		const searchButton = buttonContainer.createEl('button', { text: 'Search' });
-		searchButton.classList.add('mod-cta');
-		searchButton.addEventListener('click', () => this.performSearch());
-		
-		// Create a method to perform the search
-		this.performSearch = async () => {
-			const query = this.queryInputEl.value.trim();
-			
-			if (!query) {
-				new Notice('Please enter a search query');
-				return;
-			}
-			
-			try {
-				if (this.resultsContainerEl) {
-					this.resultsContainerEl.remove();
-				}
-				
-				this.resultsContainerEl = contentEl.createDiv();
-				this.resultsContainerEl.style.marginTop = '1rem';
-				this.resultsContainerEl.createEl('p', { text: 'Searching...' });
-				
-				const results = await this.searchService.search(query);
-				
-				this.resultsContainerEl.empty();
-				
-				if (results.length === 0) {
-					this.resultsContainerEl.createEl('p', { text: 'No results found.' });
-					return;
-				}
-				
-				// Add a header with result count and actions
-				const resultsHeader = this.resultsContainerEl.createEl('div', { cls: 'search-results-header' });
-				resultsHeader.createEl('h3', { text: `Found ${results.length} relevant notes` });
-				
-				// Add a 'View All' button to open all relevant results in separate tabs
-				const viewAllButton = resultsHeader.createEl('button', { text: 'View All in Tabs' });
-				viewAllButton.addEventListener('click', async () => {
-					// Open each result in a new tab
-					for (const result of results) {
-						const file = this.app.vault.getAbstractFileByPath(result.path);
-						if (file && file instanceof TFile) {
-							// Open the file in a new tab without highlighting
-							const leaf = this.app.workspace.getLeaf('tab');
-							await leaf.openFile(file);
-							// Note: We intentionally don't apply highlighting in new tabs
-						}
-					}
-					// Close the modal after opening all tabs
-					this.close();
-				});
-				
-				// Add CSS for the search results
-				const styleEl = document.createElement('style');
-				styleEl.textContent = `
-					.search-results-header {
-						display: flex;
-						justify-content: space-between;
-						align-items: center;
-						margin-bottom: 1rem;
-					}
-					.search-result-excerpt {
-						margin-top: 0.5rem;
-						font-size: 0.9em;
-						color: var(--text-muted);
-						white-space: pre-wrap;
-					}
-					.search-result-score {
-						margin-top: 0.3rem;
-						font-size: 0.8em;
-						color: var(--text-accent);
-						font-weight: bold;
-					}
-					.search-result-explanation {
-						margin-top: 0.3rem;
-						font-size: 0.85em;
-						color: var(--text-normal);
-						font-style: italic;
-					}
-					.search-result-highlight {
-						background-color: var(--text-highlight-bg);
-						color: var(--text-normal);
-						padding: 0 2px;
-						border-radius: 3px;
-						font-weight: bold;
-					}
-					a.visited {
-						color: var(--text-accent);
-						font-style: italic;
-					}
-				`;
-				document.head.appendChild(styleEl);
-				
-				const resultsList = this.resultsContainerEl.createEl('ul');
-				
-				for (const result of results) {
-					const listItem = resultsList.createEl('li');
-					const link = listItem.createEl('a', { 
-						text: result.title,
-						href: '#'
-					});
-					
-					link.addEventListener('click', async (e) => {
-						e.preventDefault();
-						const file = this.app.vault.getAbstractFileByPath(result.path);
-						if (file && file instanceof TFile) {
-							// Open the file but keep the modal open
-							await this.app.workspace.getLeaf(false).openFile(file);
-							
-							// Highlighting has been completely removed
-							
-							// Mark this result as visited
-							link.classList.add('visited');
-						}
-					});
-					
-					// Add score and relevance information
-					const scoreEl = listItem.createEl('div', {
-						cls: 'search-result-score',
-						text: `Relevance: ${Math.round(result.score * 100)}%`
-					});
-					
-					// Add explanation of why this result is relevant
-					if (result.explanation) {
-						const explanationEl = listItem.createEl('div', {
-							cls: 'search-result-explanation'
-						});
-						explanationEl.setText(`Why this is relevant: ${result.explanation}`);
-					}
-					
-					// Create excerpt element with highlights
-					const excerptEl = listItem.createEl('div', { 
-						cls: 'search-result-excerpt'
-					});
-					
-					// Process excerpt to render highlights
-					const excerptText = result.excerpt;
-					
-					// Check if the excerpt contains highlight markers
-					if (excerptText.includes('[[highlight]]')) {
-						// Split by highlight markers and render with proper styling
-						const parts = excerptText.split(/\[\[highlight\]\]|\[\[\/highlight\]\]/g);
-						let isHighlighted = false;
-						
-						for (const part of parts) {
-							if (!part) continue; // Skip empty parts
-							
-							if (isHighlighted) {
-								// Create a highlighted span
-								const highlightSpan = excerptEl.createSpan({ text: part });
-								highlightSpan.addClass('search-result-highlight');
-							} else {
-								// Create a normal text node
-								excerptEl.createSpan({ text: part });
-							}
-							
-							// Toggle highlight state for next part
-							isHighlighted = !isHighlighted;
-						}
-					} else {
-						// If no highlights, just set the text content
-						excerptEl.setText(excerptText);
-					}
-				}
-			} catch (error) {
-				console.error('Error performing search:', error);
-				new Notice('Error performing search. Check console for details.');
-			}
-		};
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
+interface SearchResult {
+    file: TFile;
+    preview: string;
+    path: string;
+    score?: number;
+    explanation?: string;
 }
 
 class ObsidianLinkSettingTab extends PluginSettingTab {

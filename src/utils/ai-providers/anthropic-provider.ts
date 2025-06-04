@@ -5,7 +5,8 @@ import {
     AIVendor, 
     ModelAvailabilityInfo, 
     ModelAvailabilityStatus,
-    showErrorNotice
+    showErrorNotice,
+    ContentPart
 } from './base-provider';
 
 /**
@@ -199,10 +200,95 @@ export class AnthropicProvider implements AIProvider {
     }
     
     /**
+     * Generate content using multi-modal inputs (text and images)
+     * @param prompt The text prompt to send to the AI
+     * @param parts Additional content parts (e.g., images as base64)
+     * @returns The generated content
+     */
+    async generateMultiModalContent(prompt: string, parts: ContentPart[]): Promise<string> {
+        // Check if we're using a Claude 3 model that supports vision
+        if (!this.settings.model.includes('claude-3') && !this.settings.model.includes('claude-3.5')) {
+            const errorMessage = 'Multi-modal content generation requires Claude 3 or newer. Please update your model in settings.';
+            showErrorNotice(errorMessage, 10000);
+            throw new Error(errorMessage);
+        }
+        
+        try {
+            // Build the message content array
+            const content: any[] = [];
+            
+            // Add the text prompt
+            content.push({
+                type: 'text',
+                text: prompt
+            });
+            
+            // Add any images
+            for (const part of parts) {
+                if (part.type === 'image') {
+                    content.push({
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: 'image/jpeg',
+                            data: part.data
+                        }
+                    });
+                } else if (part.type === 'text') {
+                    content.push({
+                        type: 'text',
+                        text: part.data
+                    });
+                }
+            }
+            
+            // Call the Anthropic API with the multi-modal message
+            const message = await this.client.messages.create({
+                model: this.settings.model,
+                max_tokens: this.settings.maxTokens,
+                temperature: this.settings.temperature,
+                messages: [
+                    { role: 'user', content: content }
+                ]
+            });
+            
+            // Extract the response text
+            const responseText = message.content.reduce((acc, item) => {
+                if (item.type === 'text') {
+                    return acc + item.text;
+                }
+                return acc;
+            }, '');
+            
+            return responseText;
+        } catch (error: any) {
+            console.error('Error generating multi-modal content with Anthropic:', error);
+            
+            // Handle specific multi-modal errors
+            if (error.message && (error.message.includes('image') || error.message.includes('vision') || error.message.includes('multi-modal'))) {
+                const errorMessage = `Anthropic multi-modal error: ${error.message}. Make sure you're using a Claude 3 model that supports vision.`;
+                showErrorNotice(errorMessage, 10000);
+                throw new Error(errorMessage);
+            }
+            
+            // Reuse the existing error handling logic
+            throw error; // Let the generateContent method's error handler deal with it
+        }
+    }
+    
+    /**
      * Get the vendor of this provider
      * @returns The AI vendor (Anthropic)
      */
     getVendor(): AIVendor {
         return AIVendor.ANTHROPIC;
+    }
+
+    /**
+     * Get the display name of the provider
+     * @returns The provider's display name
+     */
+    getProviderName(): string {
+        return 'Anthropic';
     }
 }

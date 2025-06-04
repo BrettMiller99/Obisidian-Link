@@ -17,7 +17,7 @@
 }
 
 .summary-level-container,
-.summary-save-container {
+.summary-button-container {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -162,3 +162,73 @@ a.visited {
   color: var(--text-muted);
   white-space: pre-wrap;
 }
+
+/* Loading Modal Styles */
+.obsidian-link-loading-modal-content .modal-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 20px; /* Add some padding */
+  min-height: 150px; /* Ensure a minimum height */
+}
+
+.obsidian-link-loading-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 15px; /* Space between spinner and text */
+}
+
+/* Re-use existing dot-pulse for the spinner element */
+.obsidian-link-spinner {
+  /* Use the existing dot-pulse animation */
+  position: relative; /* Required for dot-pulse */
+  left: -9999px; /* Required for dot-pulse */
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: var(--text-accent);
+  color: var(--text-accent);
+  box-shadow: 9999px 0 0 -5px;
+  animation: dot-pulse 1.5s infinite linear;
+  animation-delay: 0.25s;
+}
+
+.obsidian-link-spinner::before, 
+.obsidian-link-spinner::after {
+  content: '';
+  display: inline-block;
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.obsidian-link-spinner::before {
+  box-shadow: 9984px 0 0 -5px;
+  animation: dot-pulse-before 1.5s infinite linear;
+  animation-delay: 0s;
+}
+
+.obsidian-link-spinner::after {
+  box-shadow: 10014px 0 0 -5px;
+  animation: dot-pulse-after 1.5s infinite linear;
+  animation-delay: 0.5s;
+}
+
+.obsidian-link-loading-text {
+  font-size: var(--font-ui-large); /* Make text a bit larger */
+  color: var(--text-normal);
+}
+
+.summary-button-container button {
+  flex: 1;
+  margin: 0 4px;
+}
+

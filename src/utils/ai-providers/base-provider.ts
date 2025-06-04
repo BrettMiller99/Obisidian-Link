@@ -53,6 +53,14 @@ export interface AIProviderSettings {
 /**
  * Base interface for all AI providers
  */
+/**
+ * Represents a part of multi-modal content
+ */
+export interface ContentPart {
+    type: 'text' | 'image';
+    data: string; // text content or base64-encoded image data
+}
+
 export interface AIProvider {
     /**
      * Generate content using the AI provider
@@ -60,6 +68,14 @@ export interface AIProvider {
      * @returns The generated content
      */
     generateContent(prompt: string): Promise<string>;
+    
+    /**
+     * Generate content using multi-modal inputs (text and images)
+     * @param prompt The text prompt to send to the AI
+     * @param parts Additional content parts (e.g., images as base64)
+     * @returns The generated content
+     */
+    generateMultiModalContent(prompt: string, parts: ContentPart[]): Promise<string>;
     
     /**
      * Check if the API key is valid
@@ -72,6 +88,12 @@ export interface AIProvider {
      * @returns The AI vendor
      */
     getVendor(): AIVendor;
+    
+    /**
+     * Get the display name of the provider
+     * @returns The provider's display name
+     */
+    getProviderName(): string;
 }
 
 /**

@@ -5,7 +5,8 @@ import {
     AIVendor, 
     ModelAvailabilityInfo, 
     ModelAvailabilityStatus,
-    showErrorNotice
+    showErrorNotice,
+    ContentPart
 } from './base-provider';
 
 /**
@@ -237,6 +238,129 @@ export class GeminiProvider implements AIProvider {
      * Check if the API key is valid by making a simple request
      * @returns True if the API key is valid, false otherwise
      */
+    /**
+     * Generate content using multi-modal inputs (text and images)
+     * @param prompt The text prompt to send to the AI
+     * @param parts Additional content parts (e.g., images as base64)
+     * @returns The generated content
+     */
+    async generateMultiModalContent(prompt: string, parts: ContentPart[]): Promise<string> {
+        try {
+            console.log(`Generating multi-modal content with model: ${this.settings.model}`);
+            
+            // Build the parts array for the Gemini API
+            // The first part should be the text prompt
+            const geminiParts: any[] = [
+                { text: prompt }
+            ];
+            
+            // Add any additional parts (like images)
+            for (const part of parts) {
+                if (part.type === 'image') {
+                    // Add the image as a mimePart
+                    geminiParts.push({
+                        inlineData: {
+                            data: part.data,  // Base64 encoded image data
+                            mimeType: 'image/jpeg'  // Assuming JPEG for now, could be made dynamic
+                        }
+                    });
+                } else if (part.type === 'text') {
+                    // Add additional text parts
+                    geminiParts.push({ text: part.data });
+                }
+            }
+            
+            // Generate content with the text and image parts
+            const result = await this.model.generateContent({
+                contents: [{ role: 'user', parts: geminiParts }],
+                generationConfig: {
+                    temperature: this.settings.temperature,
+                    maxOutputTokens: this.settings.maxTokens,
+                }
+            });
+            
+            return result.response.text();
+        } catch (error: any) {
+            console.error('Error generating multi-modal content with Gemini:', error);
+            
+            // Handle specific errors for multi-modal content
+            if (error.message && error.message.includes('multimodal')) {
+                const errorMessage = `This model doesn't support multi-modal input. Try using gemini-1.5-pro or another model with multi-modal capabilities.`;
+                showErrorNotice(errorMessage, 10000);
+                throw new Error(errorMessage);
+            }
+            
+            // Reuse the same error handling as generateContent
+            throw this.handleGeminiError(error);
+        }
+    }
+    
+    /**
+     * Handle Gemini API errors with detailed error messages
+     */
+    private handleGeminiError(error: any): Error {
+        // Get model information for better error messages
+        const modelInfo = checkGeminiModelAvailability(this.settings.model);
+        
+        // Provide more specific error messages for common issues
+        if (error.message && error.message.includes('404')) {
+            // Model not found - provide specific guidance based on model status
+            let errorMessage = `Model not available: ${this.settings.model}.`;
+            
+            if (modelInfo.status === ModelAvailabilityStatus.LIMITED_PREVIEW || 
+                modelInfo.status === ModelAvailabilityStatus.EXPERIMENTAL) {
+                // Known limited availability model
+                errorMessage += ` ${modelInfo.reason || 'This model has limited availability.'}`;
+                
+                // Suggest a fallback model if available
+                if (modelInfo.fallbackModel) {
+                    errorMessage += ` Try using ${modelInfo.fallbackModel} instead.`;
+                } else {
+                    errorMessage += ` Try using a Gemini 1.5 or 2.0 model instead.`;
+                }
+            } else if (modelInfo.status === ModelAvailabilityStatus.UNKNOWN) {
+                // Unknown model
+                errorMessage += ` This model may not exist or may not be available with your API key. Try using a known model like gemini-1.5-pro instead.`;
+            } else {
+                // Generally available model that should work but doesn't
+                errorMessage += ` This is unexpected as this model should be available. Please check your API key permissions or try a different model.`;
+            }
+            
+            // Show error in UI
+            showErrorNotice(errorMessage, 10000);
+            
+            return new Error(errorMessage);
+        } else if (error.message && (error.message.includes('401') || error.message.includes('403'))) {
+            const errorMessage = 'Authentication failed. Please check your API key in settings.';
+            showErrorNotice(errorMessage, 10000);
+            return new Error(errorMessage);
+        } else if (error.message && error.message.includes('429')) {
+            const errorMessage = 'Rate limit exceeded. Please try again later.';
+            showErrorNotice(errorMessage, 10000);
+            return new Error(errorMessage);
+        } else if (error.message && error.message.includes('invalid_request')) {
+            // More specific handling for invalid requests
+            let errorMessage = `Invalid request: ${error.message}.`;
+            
+            // Check if this might be due to model capabilities
+            if (error.message.includes('image') || error.message.includes('multimodal')) {
+                errorMessage += ` This may be because you're trying to use features not supported by this model. Check if you need a multimodal-capable model.`;
+            } else if (error.message.includes('token') || error.message.includes('length')) {
+                errorMessage += ` This may be due to exceeding token limits. Try reducing your input or output token settings.`;
+            } else {
+                errorMessage += ` This may be due to an issue with your prompt or settings.`;
+            }
+            
+            showErrorNotice(errorMessage, 10000);
+            return new Error(errorMessage);
+        }
+        
+        // Generic error fallback
+        const errorMessage = `Error with Gemini API: ${error.message || 'Unknown error'}`;
+        showErrorNotice(errorMessage, 5000);
+        return new Error(errorMessage);
+    }
+
     async isApiKeyValid(): Promise<boolean> {
         try {
             await this.generateContent('Hello, please respond with "API key is valid" if you can read this message.');
@@ -253,5 +377,13 @@ export class GeminiProvider implements AIProvider {
      */
     getVendor(): AIVendor {
         return AIVendor.GOOGLE;
+    }
+
+    /**
+     * Get the display name of the provider
+     * @returns The provider's display name
+     */
+    getProviderName(): string {
+        return 'Google Gemini';
     }
 }
