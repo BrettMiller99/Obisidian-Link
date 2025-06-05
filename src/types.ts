@@ -1,5 +1,14 @@
 import { Notice } from 'obsidian';
-import { AIVendor } from './utils/ai-providers';
+import { AIVendor } from './utils/ai-providers/base-provider';
+
+/**
+ * Summary detail levels
+ */
+export enum SummaryLevel {
+    BRIEF = 'brief',
+    NORMAL = 'normal',
+    DETAILED = 'detailed'
+}
 
 /**
  * Legacy type for backward compatibility

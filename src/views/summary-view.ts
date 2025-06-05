@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, ButtonComponent, DropdownComponent, TFile, MarkdownRenderer } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, ButtonComponent, DropdownComponent, TFile, MarkdownRenderer, MarkdownView } from 'obsidian';
 import { SummarizerService } from '../services/summarizer';
 import { ObsidianLinkSettings } from '../types';
 
@@ -12,17 +12,17 @@ export enum SummaryLevel {
 
 export class SummaryView extends ItemView {
     // contentEl is already defined in the parent ItemView class
-    private summaryContainerEl: HTMLElement;
-    private summaryContentEl: HTMLElement;
-    private controlsEl: HTMLElement;
-    private loadingEl: HTMLElement;
-    private summaryService: SummarizerService;
-    private settings: ObsidianLinkSettings;
-    private currentContent: string = '';
-    private currentSummary: string = '';
-    private currentFile: TFile | null = null;
-    private currentLevel: SummaryLevel = SummaryLevel.STANDARD;
-    private levelDropdown: DropdownComponent;
+    protected summaryContainerEl: HTMLElement;
+    protected summaryContentEl: HTMLElement;
+    protected controlsEl: HTMLElement;
+    protected loadingEl: HTMLElement;
+    protected summaryService: SummarizerService;
+    protected settings: ObsidianLinkSettings;
+    protected currentContent: string = '';
+    protected currentSummary: string = '';
+    protected currentFile: TFile | null = null;
+    protected currentLevel: SummaryLevel = SummaryLevel.STANDARD;
+    protected levelDropdown: DropdownComponent;
 
     constructor(
         leaf: WorkspaceLeaf, 
@@ -70,9 +70,45 @@ export class SummaryView extends ItemView {
                 }
             });
 
+        // Create button container
+        const buttonContainer = this.controlsEl.createDiv('summary-button-container');
+        
+        // Create summarize current note button
+        new ButtonComponent(buttonContainer)
+            .setButtonText('Summarize Current Note')
+            .setIcon('file-text')
+            .onClick(async () => {
+                // Try to get the active markdown view
+                let activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+                
+                // If not found, try getting it from the most recent leaf
+                if (!activeView) {
+                    const leaves = this.app.workspace.getLeavesOfType('markdown');
+                    if (leaves.length > 0) {
+                        const leaf = leaves[0];
+                        if (leaf.view instanceof MarkdownView) {
+                            activeView = leaf.view;
+                        }
+                    }
+                }
+                
+                // If still not found, show error
+                if (!activeView) {
+                    new Notice('Please open a markdown file to summarize');
+                    return;
+                }
+                
+                if (!activeView.file) {
+                    new Notice('No file associated with the current view');
+                    return;
+                }
+                
+                const content = await this.app.vault.read(activeView.file);
+                await this.generateSummary(content, activeView.file);
+            });
+
         // Create save button
-        const saveButtonContainer = this.controlsEl.createDiv('summary-save-container');
-        new ButtonComponent(saveButtonContainer)
+        new ButtonComponent(buttonContainer)
             .setButtonText('Save to Note')
             .setIcon('save')
             .onClick(() => this.saveToNote());
@@ -90,9 +126,37 @@ export class SummaryView extends ItemView {
         });
     }
 
-    async generateSummary(content: string, file: TFile | null): Promise<void> {
+    /**
+     * Sets the content to be summarized
+     * @param content The content to summarize
+     */
+    public setContent(content: string): void {
+        this.currentContent = content;
+    }
+
+    /**
+     * Sets the current file being summarized
+     * @param file The file being summarized
+     */
+    public setFile(file: TFile | null): void {
+        this.currentFile = file;
+    }
+
+    /**
+     * Generates a summary for the given content and file
+     * @param content The content to summarize
+     * @param file The file being summarized
+     */
+    public async generateSummary(content: string, file: TFile | null): Promise<void> {
         if (!content) {
             new Notice('No content to summarize');
+            return;
+        }
+
+        // Check if summary service is available
+        if (!this.summaryService) {
+            new Notice('Summarizer service is not available. Please check your API key and try again.');
+            console.error('Summarizer service is not initialized');
             return;
         }
 

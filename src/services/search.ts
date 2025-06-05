@@ -2,13 +2,15 @@ import { App, TFile } from 'obsidian';
 import { ObsidianLinkSettings, getApiKeyForVendor } from '../types';
 import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
 
-interface SearchResult {
+export interface SearchResult {
     title: string;
     path: string;
     excerpt: string;
     score: number;
     relevantSection?: string;
     explanation?: string; // Explanation of why this result is relevant
+    file: TFile; // The actual file reference
+    preview: string; // Preview text to show in search results
 }
 
 export class SearchService {
@@ -119,7 +121,9 @@ export class SearchService {
                 title: item.file.basename,
                 path: item.file.path,
                 excerpt: item.excerpt,
-                score: 0 // Will be updated with AI scoring
+                score: 0, // Will be updated with AI scoring
+                file: item.file,
+                preview: item.excerpt // Using excerpt as preview for now
             }));
             
             // If we have no documents to analyze, return empty results
@@ -473,7 +477,9 @@ Excerpt: ${result.excerpt}`;
                     score: ranking.score,
                     relevantSection: ranking.relevantSection,
                     explanation: detailedExplanation,
-                    excerpt: enhancedExcerpt + `\n\nRelevance (${Math.round(ranking.score * 100)}%): ${detailedExplanation}`
+                    excerpt: enhancedExcerpt + `\n\nRelevance (${Math.round(ranking.score * 100)}%): ${detailedExplanation}`,
+                    preview: enhancedExcerpt, // Update preview with enhanced excerpt
+                    file: originalResult.file // Ensure file reference is preserved
                 };
             });
             

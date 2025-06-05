@@ -1,98 +1,17 @@
-import { ObsidianLinkSettings, getApiKeyForVendor } from '../types';
-import { AIProvider, AIProviderFactory } from '../utils/ai-providers';
+import { AIProvider } from '../utils/ai-providers';
 import { SummaryLevel } from '../views/summary-view';
+
+interface AIResponse {
+    text?: string;
+}
 
 export class SummarizerService {
     private aiProvider: AIProvider;
-    private settings: ObsidianLinkSettings;
 
-    constructor(settings: ObsidianLinkSettings) {
-        this.settings = settings;
-        
-        // Get the appropriate API key for the selected vendor
-        const apiKey = getApiKeyForVendor(settings, settings.vendor);
-        
-        // Create the AI provider using the factory
-        this.aiProvider = AIProviderFactory.createProvider({
-            apiKey,
-            model: settings.model,
-            maxTokens: settings.maxTokens,
-            temperature: settings.temperature,
-            vendor: settings.vendor
-        });
+    constructor(aiProvider: AIProvider) {
+        this.aiProvider = aiProvider;
     }
 
-    /**
-     * Summarizes the provided text content with the specified level of detail
-     * @param content The text content to summarize
-     * @param level The level of detail for the summary (brief, standard, detailed)
-     * @returns A summary of the content with the requested level of detail
-     */
-    async summarize(content: string, level: SummaryLevel = SummaryLevel.STANDARD): Promise<string> {
-        try {
-            // Adjust instructions based on the summary level
-            let levelInstructions = '';
-            let maxLength = '';
-            
-            switch (level) {
-                case SummaryLevel.BRIEF:
-                    levelInstructions = 'Create a very concise summary that captures only the most essential points. Focus on the core message and omit details.';
-                    maxLength = 'Keep the summary very short (about 2-3 paragraphs maximum).';
-                    break;
-                    
-                case SummaryLevel.DETAILED:
-                    levelInstructions = 'Create a comprehensive summary that includes main points as well as important supporting details, examples, and nuances.';
-                    maxLength = 'The summary can be longer to accommodate more details (about 5-7 paragraphs).';
-                    break;
-                    
-                case SummaryLevel.STANDARD:
-                default:
-                    levelInstructions = 'Create a balanced summary that includes the main points and some key supporting details.';
-                    maxLength = 'Keep the summary to a moderate length (about 3-5 paragraphs).';
-                    break;
-            }
-            
-            const prompt = `
-                Please provide an informative summary of the following text.
-                ${levelInstructions}
-                ${maxLength}
-                Maintain the overall structure and flow of the original content.
-                Format the summary in Markdown with appropriate paragraph breaks.
-                
-                EXTREMELY IMPORTANT INSTRUCTIONS:
-                - DO NOT include any title, heading, or H1/H2 tags in your summary
-                - DO NOT start with the title of the document
-                - DO NOT repeat the title of the document
-                - Start directly with the summary content in paragraph form
-                - The title will be added separately, so do not include one
-                
-                Text to summarize:
-                ${content}
-            `;
-            
-            // Get the raw summary from the AI provider
-            const response = await this.aiProvider.generateContent(prompt);
-            
-            // Extract the text from the response
-            let summary: string;
-            if (typeof response === 'string') {
-                summary = response;
-            } else if (response && typeof response === 'object' && 'text' in response) {
-                summary = response.text as string;
-            } else {
-                throw new Error('Invalid response format from AI provider');
-            }
-            
-            // Post-process to remove any titles that might have been included despite instructions
-            summary = this.removeTitles(summary);
-            
-            return summary;
-        } catch (error) {
-            console.error('Error summarizing content:', error);
-            throw new Error(`Failed to summarize content: ${error.message}`);
-        }
-    }
-    
     /**
      * Removes any titles that might be at the beginning of the summary
      * @param text The summary text to process
@@ -138,5 +57,146 @@ export class SummarizerService {
         
         // Join the remaining lines
         return lines.slice(startIndex).join('\n').trim();
+    }
+
+    /**
+     * Splits content into manageable chunks for summarization
+     */
+    private chunkContent(content: string): string[] {
+        const paragraphs = content.split(/\n\s*\n/);
+        const chunks: string[] = [];
+        let currentChunk = '';
+        const TARGET_CHUNK_SIZE = 2000; // Characters per chunk
+
+        for (const paragraph of paragraphs) {
+            if ((currentChunk + paragraph).length > TARGET_CHUNK_SIZE && currentChunk.length > 0) {
+                chunks.push(currentChunk.trim());
+                currentChunk = paragraph;
+            } else {
+                currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+            }
+        }
+
+        if (currentChunk) {
+            chunks.push(currentChunk.trim());
+        }
+
+        return chunks;
+    }
+
+    /**
+     * Summarizes a single chunk of content
+     */
+    private async summarizeChunk(chunk: string, level: SummaryLevel, isPartOfLargerDoc: boolean = false): Promise<string> {
+        let levelInstructions = '';
+        let formatInstructions = '';
+        
+        switch (level) {
+            case SummaryLevel.BRIEF:
+                levelInstructions = `Create a very concise bullet-point summary that captures only the most essential key points. Focus on the core messages and critical information.`;
+                formatInstructions = `Format as bullet points, with 3-5 key points maximum. Each point should be clear and concise.`;
+                break;
+                
+            case SummaryLevel.STANDARD:
+                levelInstructions = `Create a balanced summary that captures main points and important supporting details. Include more context than the brief summary but stay focused.`;
+                formatInstructions = `Format with a very short overview paragraph (2-3 sentences) followed by 5-8 bullet points highlighting key information and supporting details.`;
+                break;
+                
+            case SummaryLevel.DETAILED:
+                levelInstructions = `Create a comprehensive summary that thoroughly analyzes the content. Include all significant points, supporting details, and their relationships.`;
+                formatInstructions = `Format with:
+                - An overview paragraph summarizing the main themes
+                - Detailed bullet points for each major topic
+                - Sub-bullets for supporting details and examples
+                - Ensure all important concepts are covered`;
+                break;
+        }
+
+        const contextInstruction = isPartOfLargerDoc ? 
+            'This is part of a larger document, so focus on the key points from this section.' : 
+            'This is a complete document, provide a cohesive summary.';
+
+        const prompt = `
+            Please provide an informative summary of the following text.
+            ${levelInstructions}
+            ${formatInstructions}
+            ${contextInstruction}
+            
+            EXTREMELY IMPORTANT INSTRUCTIONS:
+            - DO NOT include any title or heading
+            - DO NOT repeat the document title
+            - Start directly with the content
+            - Use proper markdown formatting
+            - Use bullet points as specified
+            - Keep bullet points concise but informative
+            
+            Text to summarize:
+            ${chunk}
+        `;
+
+        const response = await this.aiProvider.generateContent(prompt);
+        let summary = '';
+
+        if (typeof response === 'string') {
+            summary = response;
+        } else if (response && typeof response === 'object') {
+            const aiResponse = response as AIResponse;
+            if (aiResponse.text && typeof aiResponse.text === 'string') {
+                summary = aiResponse.text;
+            }
+        }
+
+        return this.removeTitles(summary);
+    }
+
+    /**
+     * Main summarization method that handles content chunking and combines summaries
+     */
+    public async summarize(content: string, level: SummaryLevel = SummaryLevel.STANDARD): Promise<string> {
+        try {
+            const chunks = this.chunkContent(content);
+            const needsChunking = chunks.length > 1;
+
+            if (!needsChunking) {
+                return this.removeTitles(await this.summarizeChunk(content, level));
+            }
+
+            // Summarize each chunk
+            const chunkSummaries = await Promise.all(
+                chunks.map(chunk => this.summarizeChunk(chunk, level, true))
+            );
+
+            // If we have multiple chunks, create a final summary combining them
+            const combinedSummary = chunkSummaries.join('\n\n');
+            const finalSummaryPrompt = `
+                Below are summaries of different sections of a document. 
+                Create a cohesive ${level.toLowerCase()} summary that combines these sections.
+                Maintain the same level of detail and formatting as specified for the ${level.toLowerCase()} summary level.
+                Eliminate any redundancy while preserving all unique and important information.
+
+                Section summaries:
+                ${combinedSummary}
+            `;
+
+            const finalSummary = await this.aiProvider.generateContent(finalSummaryPrompt);
+            let processedSummary = '';
+            if (typeof finalSummary === 'string') {
+                processedSummary = finalSummary;
+            } else if (finalSummary && typeof finalSummary === 'object') {
+                const aiResponse = finalSummary as AIResponse;
+                if (aiResponse.text && typeof aiResponse.text === 'string') {
+                    processedSummary = aiResponse.text;
+                } else {
+                    throw new Error('Invalid response format: missing text property');
+                }
+            } else {
+                throw new Error('Invalid response format from AI provider');
+            }
+
+            return this.removeTitles(processedSummary);
+        } catch (error) {
+            console.error('Error summarizing content:', error);
+            throw new Error(`Failed to summarize content: ${error.message}`);
+        }
     }
 }

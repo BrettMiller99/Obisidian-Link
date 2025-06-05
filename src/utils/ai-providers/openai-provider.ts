@@ -5,7 +5,8 @@ import {
     AIVendor, 
     ModelAvailabilityInfo, 
     ModelAvailabilityStatus,
-    showErrorNotice
+    showErrorNotice,
+    ContentPart
 } from './base-provider';
 
 /**
@@ -202,10 +203,88 @@ export class OpenAIProvider implements AIProvider {
     }
     
     /**
+     * Generate content using multi-modal inputs (text and images)
+     * @param prompt The text prompt to send to the AI
+     * @param parts Additional content parts (e.g., images as base64)
+     * @returns The generated content
+     */
+    async generateMultiModalContent(prompt: string, parts: ContentPart[]): Promise<string> {
+        // Check if we're using a vision-capable model
+        if (!this.settings.model.includes('vision') && !this.settings.model.includes('gpt-4o')) {
+            const errorMessage = 'Multi-modal content generation requires a vision-capable model like gpt-4-vision-preview or gpt-4o. Please update your model in settings.';
+            showErrorNotice(errorMessage, 10000);
+            throw new Error(errorMessage);
+        }
+        
+        try {
+            // Build the messages array for OpenAI API
+            const message: any = {
+                role: 'user',
+                content: []
+            };
+            
+            // Add the text prompt
+            message.content.push({
+                type: 'text',
+                text: prompt
+            });
+            
+            // Add any images
+            for (const part of parts) {
+                if (part.type === 'image') {
+                    message.content.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:image/jpeg;base64,${part.data}`
+                        }
+                    });
+                } else if (part.type === 'text') {
+                    message.content.push({
+                        type: 'text',
+                        text: part.data
+                    });
+                }
+            }
+            
+            // Call the OpenAI API with the multi-modal message
+            const completion = await this.client.chat.completions.create({
+                model: this.settings.model,
+                messages: [message],
+                temperature: this.settings.temperature,
+                max_tokens: this.settings.maxTokens
+            });
+            
+            // Extract the response text
+            const responseText = completion.choices[0]?.message?.content || '';
+            return responseText;
+        } catch (error: any) {
+            console.error('Error generating multi-modal content with OpenAI:', error);
+            
+            // Handle specific multi-modal errors
+            if (error.message && error.message.includes('image')) {
+                const errorMessage = `OpenAI multi-modal error: ${error.message}. Make sure you're using a vision-capable model like gpt-4-vision-preview.`;
+                showErrorNotice(errorMessage, 10000);
+                throw new Error(errorMessage);
+            }
+            
+            // Reuse the existing error handling logic
+            throw error; // Let the generateContent method's error handler deal with it
+        }
+    }
+    
+    /**
      * Get the vendor of this provider
      * @returns The AI vendor (OpenAI)
      */
     getVendor(): AIVendor {
         return AIVendor.OPENAI;
+    }
+
+    /**
+     * Get the display name of the provider
+     * @returns The provider's display name
+     */
+    getProviderName(): string {
+        return 'OpenAI';
     }
 }
