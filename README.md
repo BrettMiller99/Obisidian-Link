@@ -91,18 +91,18 @@ Obsidian-Link leverages powerful AI models to enhance your Obsidian experience:
 ## Usage
 
 ### Web Scraping
-1. Click the globe icon in the ribbon or use the command palette (Ctrl+P) and search for "Gemini: Scrape Website"
+1. Click the globe icon in the ribbon or use the command palette (Ctrl+P) and search for "Obsidian-Link: Scrape Website"
 2. Enter the URL of the website you want to scrape
 3. Press Enter or click "Scrape"
 4. A new note will be created in the "Web scrapes" folder with the extracted content
 
 ### Note Summarization
 1. Select text in your note that you want to summarize
-2. Use the command palette (Ctrl+P) and select "Gemini: Summarize Selection"
+2. Use the command palette (Ctrl+P) and select "Obsidian-Link: Summarize Selection"
 3. A new note will be created with the AI-generated summary and a link back to the original note
 
 ### Smart Search
-1. Use the command palette (Ctrl+P) and search for "Gemini: Smart Search"
+1. Use the command palette (Ctrl+P) and search for "Obsidian-Link: Smart Search"
 2. Enter your search query using natural language
 3. Press Enter to execute the search
 4. Review results with relevance explanations and highlighted key sections
